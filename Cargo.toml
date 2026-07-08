@@ -1,0 +1,29 @@
+[package]
+name = "shell-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Shared Tauri app-shell + release-tooling layer for the curator and warden apps."
+repository = "https://github.com/Lockyc/shell-core"
+publish = false
+
+# The default feature set is ZERO-dependency on purpose: `build_stamp()` and the embedded release
+# scripts (RELEASE_SH/GEN_LATEST_SH/INSTALL_APP_SH) are all a consuming app's `build.rs` needs, and
+# a build-dependency must stay light. The Tauri runtime helper (`register_plugins`) lives behind the
+# `runtime` feature so it only pulls tauri when used as a normal `[dependencies]` entry. With
+# resolver = "2", a consumer's `[build-dependencies]` (default-features = false) and `[dependencies]`
+# (features = ["runtime"]) resolve features independently, so the build-dep never drags in tauri.
+[features]
+default = []
+runtime = [
+    "dep:tauri",
+    "dep:tauri-plugin-updater",
+    "dep:tauri-plugin-process",
+    "dep:tauri-plugin-window-state",
+]
+
+[dependencies]
+tauri = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
+tauri-plugin-window-state = { version = "2", optional = true }
