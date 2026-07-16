@@ -1,0 +1,14 @@
+name    = "shell-core"
+summary = "The shared Tauri app-shell + release tooling for warden and curator — one release pipeline a new sibling app inherits instead of copy-pasting"
+kind    = "library"
+status  = "active"
+tags    = ["tauri", "release", "tooling", "shared-core", "macos"]
+stack   = ["rust", "bash"]
+
+[[provides]]
+name    = "release-tooling"
+summary = "The three release scripts (release.sh / gen-latest-json.sh / install-app.sh) as the source of truth, embedded and materialized into each consuming app; every app-specific value comes from a tracked per-app scripts/tooling.env. Zero-dependency, so a build-dependency stays light."
+
+[[provides]]
+name    = "app-shell"
+summary = "The Tauri runtime sliver identical for any such app: register_plugins() (window-state, updater, process) and build_stamp() for the About box."
