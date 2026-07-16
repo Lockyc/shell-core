@@ -30,11 +30,15 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   are native NSViews — it has no untrusted webview to spoof a call — so it has no such gate and never
   needs one. Sharing it would push dead, misleading security code into warden.
 - **`window_state_filename()` stays per-app** — each app hashes its own config path. It is passed
-  *into* `register_plugins`, not owned here. (Footgun in the wild: curator currently hashes with
-  `std::hash::DefaultHasher`, whose output is **not** stable across Rust toolchains — a toolchain bump
-  silently changes the filename and resets every window's saved bounds. warden correctly uses a fixed
-  `fnv1a_64`. That's a curator bug to fix in curator, independent of this crate — do not paper over it
-  by moving the hash here.)
+  *into* `register_plugins`, not owned here. **Do not move the hash here** to deduplicate it — the
+  ~8-line `fnv1a_64` each app carries is the deliberate cost of that boundary.
+  - **Footgun every consumer must keep honouring:** the hash drives a *persistent on-disk filename*,
+    so it must use a **fixed** algorithm — `fnv1a_64`, pinned by a known-vectors test in each app.
+    Never `std::hash::DefaultHasher`: its output is **not** guaranteed stable across Rust releases, so
+    a toolchain bump silently changes the filename and resets every window's saved bounds. It reads
+    as "the app forgot my layout", never as a toolchain problem. (curator shipped this bug — fixed
+    2026-07-16; warden was always correct. A new sibling app copying curator's shape must copy the
+    *fixed* version.)
 
 ## The embed-and-materialize pattern (the tooling seam)
 
