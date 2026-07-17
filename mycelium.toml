@@ -12,3 +12,11 @@ summary = "The three release scripts (release.sh / gen-latest-json.sh / install-
 [[provides]]
 name    = "app-shell"
 summary = "The Tauri runtime sliver identical for any such app: register_plugins() (window-state, updater, process) and build_stamp() for the About box."
+
+[[provides]]
+name    = "menu-spine"
+summary = "menu::build_spine() — the App/Config/Window submenus (About, Check for Updates…, Edit/Reveal Config, a checked per-window selector) identical across the family, plus the family-standard Close Tab/Close Window accelerators (⌘W/⌘⇧W) as constants so they can't drift per app again. Returns submenus for the app to interleave with its own genuinely-per-app items (curator's Edit/Tabs, warden's Tab digit-mode jumps + Reopen Last Closed)."
+
+[[provides]]
+name    = "home-surface"
+summary = "home::{home_state, show_home, close_home} — the surface an app shows when it would otherwise have no window (no config / a load error / a valid config's window list), so the app is never stranded invisible. Replaces curator's former error window and warden's former launcher, two half-implementations of the same idea. Never touches config-core itself — the consuming app wires the \"Create a starter config\" action, keeping the cores mutually independent."

@@ -72,8 +72,8 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     build.rs change) and `Origin::Local` (works with each app's capabilities file unchanged).
   - **Needs the `unstable` Cargo feature on `tauri`** (`WindowBuilder`, `WebviewBuilder::new`, and
     `Window::add_child` are gated behind it) — already on by every consumer's own `tauri` dependency
-    for the same reason curator's `build_error_window` needs it, so this costs nothing new
-    downstream.
+    for the same reason curator's and lector's content webviews need it (both `add_child` a webview
+    per open tab), so this costs nothing new downstream.
 
 **Out — and why (do not "consolidate" these; the divergence is real):**
 - **IPC fan-out** — curator centralizes `emit_to_*chrome` helpers with plain event names; warden
