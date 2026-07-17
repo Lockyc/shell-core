@@ -10,11 +10,13 @@
 //!   `TAURI_CRATE_DIR`, `UPDATER_REPO`). [`build_stamp`] is the other build-time helper: a git
 //!   sha/date stamp for the About box.
 //! - **Runtime (`runtime` feature).** [`register_plugins`] installs the plugins every app registers
-//!   identically (window-state + updater + process). [`menu`] builds the shared menu spine — the
-//!   App/Config/Window submenus, identical across apps; each app's own items (curator's Reload Tab,
-//!   warden's tab semantics) interleave with it. Deliberately NOT shared: IPC fan-out and the config
-//!   watcher (diverged in structure per app), and the chrome-caller command gate (curator-only —
-//!   warden hosts no untrusted webviews).
+//!   identically (window-state + updater + process) and the home surface's custom protocol. [`menu`]
+//!   builds the shared menu spine — the App/Config/Window submenus, identical across apps; each
+//!   app's own items (curator's Reload Tab, warden's tab semantics) interleave with it. [`home`] is
+//!   the surface an app shows when it would otherwise have no window (no config / a load error / a
+//!   valid config's window list), so it is never stranded invisible. Deliberately NOT shared: IPC
+//!   fan-out and the config watcher (diverged in structure per app), and the chrome-caller command
+//!   gate (curator-only — warden hosts no untrusted webviews).
 
 /// Embedded source of `scripts/release.sh` — the generic build+notarize+upload release script.
 /// A consumer's `build.rs` writes this into its own `scripts/release.sh` (git-ignored).
@@ -48,6 +50,9 @@ pub fn materialize_scripts(dir: &std::path::Path) -> std::io::Result<()> {
 
 #[cfg(feature = "runtime")]
 pub mod menu;
+
+#[cfg(feature = "runtime")]
+pub mod home;
 
 /// Emit a build stamp so the About box can confirm the installed app matches a given commit. Prints
 /// `cargo:rustc-env=BUILD_GIT_SHA=<short>[-dirty]` and `cargo:rustc-env=BUILD_DATE=<YYYY-MM-DD>`,
@@ -107,10 +112,15 @@ mod runtime {
         for label in skip_labels {
             ws = ws.skip_initial_state(label);
         }
-        builder
+        let builder = builder
             .plugin(ws.with_filename(state_filename).build())
             .plugin(tauri_plugin_updater::Builder::new().build())
-            .plugin(tauri_plugin_process::init())
+            .plugin(tauri_plugin_process::init());
+        // The home surface's page is served over its own custom protocol rather than materialized
+        // into each consumer's frontendDist — see `home::HOME_SCHEME`'s doc for why that's what
+        // keeps its webview's origin classified `local` (so its commands need no extra capability
+        // wiring). Registered here alongside the rest of the identical runtime setup.
+        crate::home::register_protocol(builder)
     }
 }
 

@@ -44,6 +44,36 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   - **Check for Updates… is a menu item here, not update logic.** chrome-core owns self-update (its
     dividing-line exemplar); the app forwards the event to `checkForUpdateNow()`. `handle_spine_event`
     handles only the two config ids, which act on a file and need no window.
+- **The home surface** (`home::{home_state, show_home, close_home}`, `runtime` feature) — what an
+  app shows when it would otherwise have no window, so it is **never stranded invisible**. Three
+  states: no config (offer to write one), a load error (show it), or a valid config's window list
+  (warden's launcher, generalised). `home_state` is a pure function of those inputs and is tested
+  as one.
+  - It replaces **curator's error window** and **warden's launcher** — two half-implementations of
+    one idea. curator's stated an error and offered no action; warden's offered windows and could
+    not express an error. Neither could do the other's job, and lector had neither, so a fresh
+    install launched to nothing at all.
+  - **shell-core owns the surface; the app wires the actions.** "Create a starter config" is the
+    app's command calling `config_core::write_default_config` with its own template. shell-core
+    must **never** depend on config-core: the three cores are a flat fan-out, and a core→core edge
+    would let a config-core bump force a shell-core rev and break the `*-dev`/`*-pin` loop's
+    assumption that each core is independently patchable.
+  - Pass `HOME_LABEL` in `register_plugins`' `skip_labels`, or its throwaway bounds get persisted.
+  - **The page is served over its own custom URI scheme (`home::HOME_SCHEME`, registered by
+    `register_plugins` via `home::register_protocol`), never `WebviewUrl::App`.** This is
+    deliberate, not a shortcut: Tauri's ACL engine classifies a webview as `Origin::Local` or
+    `Origin::Remote` from its navigated URL, and only `Local` matches a capability entry that
+    carries no `remote` block — which is what every consumer's existing capabilities file is
+    shaped like (see lector's capabilities footgun). `WebviewUrl::App` would need `home.html`
+    materialized into each consumer's own `frontendDist` (an extra per-app build step this task
+    doesn't otherwise need); a `data:` URL is `Origin::Remote` and has no stable `remote.urls`
+    pattern to grant against, which would silently break the page's `invoke()` calls. A
+    Builder-registered custom protocol is the one option that is both self-contained (no consumer
+    build.rs change) and `Origin::Local` (works with each app's capabilities file unchanged).
+  - **Needs the `unstable` Cargo feature on `tauri`** (`WindowBuilder`, `WebviewBuilder::new`, and
+    `Window::add_child` are gated behind it) — already on by every consumer's own `tauri` dependency
+    for the same reason curator's `build_error_window` needs it, so this costs nothing new
+    downstream.
 
 **Out — and why (do not "consolidate" these; the divergence is real):**
 - **IPC fan-out** — curator centralizes `emit_to_*chrome` helpers with plain event names; warden
