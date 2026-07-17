@@ -10,9 +10,11 @@
 //!   `TAURI_CRATE_DIR`, `UPDATER_REPO`). [`build_stamp`] is the other build-time helper: a git
 //!   sha/date stamp for the About box.
 //! - **Runtime (`runtime` feature).** [`register_plugins`] installs the plugins every app registers
-//!   identically (window-state + updater + process). Deliberately NOT shared: IPC fan-out and the
-//!   config watcher (diverged in structure per app), menu construction (diverged), and the
-//!   chrome-caller command gate (curator-only — warden hosts no untrusted webviews).
+//!   identically (window-state + updater + process). [`menu`] builds the shared menu spine — the
+//!   App/Config/Window submenus, identical across apps; each app's own items (curator's Reload Tab,
+//!   warden's tab semantics) interleave with it. Deliberately NOT shared: IPC fan-out and the config
+//!   watcher (diverged in structure per app), and the chrome-caller command gate (curator-only —
+//!   warden hosts no untrusted webviews).
 
 /// Embedded source of `scripts/release.sh` — the generic build+notarize+upload release script.
 /// A consumer's `build.rs` writes this into its own `scripts/release.sh` (git-ignored).
@@ -44,6 +46,9 @@ pub fn materialize_scripts(dir: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "runtime")]
+pub mod menu;
+
 /// Emit a build stamp so the About box can confirm the installed app matches a given commit. Prints
 /// `cargo:rustc-env=BUILD_GIT_SHA=<short>[-dirty]` and `cargo:rustc-env=BUILD_DATE=<YYYY-MM-DD>`,
 /// plus a `rerun-if-changed` on the git ref log so it re-stamps on every commit/checkout. Call from
@@ -59,7 +64,9 @@ pub fn build_stamp() {
     }
 
     let sha = git(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "unknown".into());
-    let dirty = git(&["status", "--porcelain"]).map(|s| !s.is_empty()).unwrap_or(false);
+    let dirty = git(&["status", "--porcelain"])
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
     let sha = if dirty { format!("{sha}-dirty") } else { sha };
     let date = std::process::Command::new("date")
         .arg("+%Y-%m-%d")
@@ -95,9 +102,8 @@ mod runtime {
         skip_labels: &[&str],
     ) -> Builder<R> {
         use tauri_plugin_window_state::StateFlags;
-        let mut ws = tauri_plugin_window_state::Builder::default().with_state_flags(
-            StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED,
-        );
+        let mut ws = tauri_plugin_window_state::Builder::default()
+            .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED);
         for label in skip_labels {
             ws = ws.skip_initial_state(label);
         }

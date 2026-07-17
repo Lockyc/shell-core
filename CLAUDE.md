@@ -17,14 +17,39 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
 - `build_stamp()` — git sha/date → `BUILD_GIT_SHA`/`BUILD_DATE` for the About box.
 - `register_plugins()` (`runtime` feature) — window-state + updater + process, the three plugins
   every app registers the same way.
+- **The menu spine** (`menu::build_spine`, `runtime` feature) — the App submenu (About +
+  Check for Updates…), the Config submenu (Edit Config / Reveal in Finder), and the Window submenu
+  (minimize/maximize/fullscreen, Close Window, and a checked per-window selector). Returns the
+  submenus for the app to place among its own; it does not set the menu.
+  - **This revises an earlier decision, and half of it stands.** The old line ruled menus out
+    entirely: *"warden's terminal tab semantics vs curator's webview Edit/clipboard menu are
+    genuinely different menus, not one menu with parameters."* That is **still true of the items** —
+    curator's Reload Tab / Reset All / DevTools and warden's tab semantics stay per-app and are not
+    parameterisable. It was drawn too coarsely: it swept the *spine* out with them, and the spine is
+    identical for any app regardless of what it hosts. Two consumers could not expose the
+    distinction; a third did — lector had no menu at all, and the Config submenu turned out to be
+    byte-identical in both apps modulo the config path. **Spine in, items out.**
+  - Parameterised only where the apps genuinely differ: the app name, the config path, and the
+    window list. The Window items take warden's checked/`(closed)` shape — it shows state; curator's
+    plain items didn't.
+  - **The close accelerators are constants here, not parameters: ⌘W closes a tab, ⌘⇧W the window.**
+    That is the family standard, and this is the one place it lives. An earlier draft made the
+    close-window accelerator a parameter to accommodate curator's ⌘W-closes-the-window — which would
+    have encoded a bug as a requirement. Every app has an `unload_tab` meaning the same thing
+    (unload the active tab to cold; it respawns on next select), so nothing app-specific remains.
+    curator's ⌘W had drifted precisely because each app kept its own copy of the convention; one
+    place is what stops it drifting again. `Spine::close_tab` is returned as a bare item because
+    every app's tab submenu differs (warden's Jump/Cycle digit modes, curator's Reload/Reset/DevTools,
+    lector's empty one) — the item is shared, its placement is the app's.
+  - **Check for Updates… is a menu item here, not update logic.** chrome-core owns self-update (its
+    dividing-line exemplar); the app forwards the event to `checkForUpdateNow()`. `handle_spine_event`
+    handles only the two config ids, which act on a file and need no window.
 
 **Out — and why (do not "consolidate" these; the divergence is real):**
 - **IPC fan-out** — curator centralizes `emit_to_*chrome` helpers with plain event names; warden
   inlines `emit_to` at each site with app-namespaced events (`warden:refresh`) + a `forMe()` filter.
   Different structures; a shared helper would fight both.
 - **The config watcher** — diverged in shape between the apps.
-- **Menu construction** — warden's terminal tab semantics vs curator's webview Edit/clipboard menu
-  are genuinely different menus, not one menu with parameters.
 - **The chrome-caller command gate (`is_chrome_caller`) — curator-only.** curator hosts arbitrary web
   content in sibling webviews, so it must reject commands from non-chrome callers. warden's surfaces
   are native NSViews — it has no untrusted webview to spoof a call — so it has no such gate and never
