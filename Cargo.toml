@@ -3,7 +3,7 @@ name = "shell-core"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Shared Tauri app-shell + release-tooling layer for the curator and warden apps."
+description = "Shared Tauri app-shell + release-tooling layer for the curator, warden, and lector apps."
 repository = "https://github.com/Lockyc/shell-core"
 publish = false
 

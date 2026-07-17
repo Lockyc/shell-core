@@ -1,10 +1,11 @@
 <h1 align="center">shell-core</h1>
 
-<p align="center">The shared Tauri app-shell + release tooling for <a href="https://github.com/Lockyc/curator">curator</a> and <a href="https://github.com/Lockyc/warden">warden</a> — one release pipeline, many apps.</p>
+<p align="center">The shared Tauri app-shell + release tooling for <a href="https://github.com/Lockyc/curator">curator</a>, <a href="https://github.com/Lockyc/warden">warden</a>, and <a href="https://github.com/Lockyc/lector">lector</a> — one release pipeline, many apps.</p>
 
-curator (browser keeper-tabs) and warden (terminals) are sibling macOS Tauri apps. They already
-share a **view** ([chrome-core](https://github.com/Lockyc/chrome-core)) and **config primitives**
-([config-core](https://github.com/Lockyc/config-core)). `shell-core` is the third shared layer: the
+curator (browser keeper-tabs), warden (terminals), and lector (local doc sites) are sibling macOS
+Tauri apps. They already share a **view** ([chrome-core](https://github.com/Lockyc/chrome-core))
+and **config primitives** ([config-core](https://github.com/Lockyc/config-core)). `shell-core` is
+the third shared layer: the
 **build/release tooling** and the sliver of **Tauri runtime setup** that is identical for any such
 app — extracted once so a new sibling app inherits it instead of copy-pasting (and drifting).
 
@@ -22,9 +23,11 @@ It carries two concerns, split by Cargo feature so a build-dependency stays ligh
 
 ## Status
 
-New. Extracted from warden and curator's copy-pasted tooling; both consume it pinned to a `0.1.x`
-rev. **Deliberately NOT shared** (each diverges per app): IPC fan-out, the config watcher, menu
-construction, and the chrome-caller command gate (curator-only — warden hosts no untrusted webviews).
+In use. Extracted from warden and curator's copy-pasted tooling; all three apps (warden, curator,
+and lector) now consume it, pinned to a `0.1.x` rev. **Deliberately NOT shared** (each diverges per
+app): IPC fan-out, the config watcher, menu construction, and the chrome-caller command gate
+(curator-only — warden hosts no content webviews at all, and lector's remote-origin content
+webviews are denied by Tauri's own IPC dispatch without needing an explicit gate).
 
 ## How it's consumed
 
