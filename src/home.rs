@@ -16,9 +16,6 @@ use crate::menu::WindowEntry;
 /// bounds are never persisted or restored.
 pub const HOME_LABEL: &str = "shell-home";
 
-/// The label of the home window's one child webview.
-const HOME_VIEW: &str = "shell-home-view";
-
 /// The custom URI scheme [`register_plugins`](crate::register_plugins) registers on the app
 /// `Builder` (via [`register_protocol`]) to serve [`HOME_HTML`].
 ///
@@ -147,21 +144,18 @@ fn payload_json(state: &HomeState, app_name: &str) -> String {
     }
 }
 
-/// Current inner size of the window in logical px. Ported from curator's `webviews::logical_inner`.
-fn logical_inner<R: tauri::Runtime>(window: &tauri::Window<R>) -> (f64, f64) {
-    let scale = window.scale_factor().unwrap_or(1.0);
-    let size = window
-        .inner_size()
-        .unwrap_or(tauri::PhysicalSize::new(560, 480));
-    (size.width as f64 / scale, size.height as f64 / scale)
-}
-
 /// Open (or refresh) the home surface. Idempotent, mirroring warden's `show_launcher`: if it's
 /// already open, push a fresh payload via [`HOME_REFRESH_EVENT`] instead of rebuilding — the page
-/// only fetches `window.__SHELL_HOME__` once, on load. Otherwise builds a standalone window,
-/// modelled on curator's `build_error_window`: a `WindowBuilder` + `TitleBarStyle::Overlay` + one
-/// `add_child` webview serving [`HOME_HTML`] over [`HOME_SCHEME`], with the state injected as
+/// only fetches `window.__SHELL_HOME__` once, on load. Otherwise builds a standalone
+/// [`tauri::WebviewWindow`] — a single webview created *as the window's primary content* (label
+/// == [`HOME_LABEL`]), serving [`HOME_HTML`] over [`HOME_SCHEME`], with the state injected as
 /// `window.__SHELL_HOME__` via an `initialization_script`.
+///
+/// **Not** a bare `WindowBuilder` + `add_child` (the shape this used to have, mirroring curator's
+/// `build_error_window`) — see [`close_home`]'s doc for why. Every *real* content window in every
+/// consumer gives its window a primary webview via `WebviewWindowBuilder` (only *additional*
+/// webviews — content panes — are layered on with `add_child`); the home surface needs exactly
+/// one webview, so it should build the same way instead of being the one bespoke construction.
 pub fn show_home<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     state: &HomeState,
@@ -178,12 +172,6 @@ pub fn show_home<R: tauri::Runtime>(
         return Ok(());
     }
 
-    let window = tauri::window::WindowBuilder::new(app, HOME_LABEL)
-        .title(app_name)
-        .inner_size(560.0, 480.0)
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .build()?;
-
     let url: tauri::Url = format!("{HOME_SCHEME}://localhost/")
         .parse()
         .expect("HOME_SCHEME url is a fixed, valid literal");
@@ -192,22 +180,30 @@ pub fn show_home<R: tauri::Runtime>(
     // path and the refresh-event path (whose payload also arrives JS-side as a string, per Tauri's
     // event serialization of a Rust `String`) identical instead of one being an object and the
     // other a string to parse.
-    let view =
-        tauri::webview::WebviewBuilder::new(HOME_VIEW, tauri::WebviewUrl::CustomProtocol(url))
-            .initialization_script(format!(
-                "window.__SHELL_HOME__ = \"{}\";",
-                js_string_escape(&payload)
-            ));
-    let (w, h) = logical_inner(&window);
-    window.add_child(
-        view,
-        tauri::LogicalPosition::new(0.0, 0.0),
-        tauri::LogicalSize::new(w, h),
-    )?;
+    tauri::WebviewWindowBuilder::new(app, HOME_LABEL, tauri::WebviewUrl::CustomProtocol(url))
+        .title(app_name)
+        .inner_size(560.0, 480.0)
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .initialization_script(format!(
+            "window.__SHELL_HOME__ = \"{}\";",
+            js_string_escape(&payload)
+        ))
+        .build()?;
     Ok(())
 }
 
 /// Close the home surface if open. Safe no-op otherwise.
+///
+/// Plain `w.close()`. This surface's *previous* shape (a bare `WindowBuilder` + one
+/// `add_child`ed webview and nothing else, mirroring curator's `build_error_window`) is confirmed
+/// broken on macOS 26: `w.close()` returns `Ok(())` and Tauri's own bookkeeping (`get_window`)
+/// drops the window immediately, but the underlying window stays fully painted on screen —
+/// confirmed by screenshotting it *after* `close()` returned. [`show_home`] now builds this
+/// window the same way every real content window builds its own (a primary webview via
+/// `WebviewWindowBuilder`, not one `add_child`ed on afterward), removing the one construction-level
+/// difference this surface had from the rest of the family. Do not reintroduce a `WindowBuilder` +
+/// `add_child`-only construction for a window that has (or will only ever have) exactly one
+/// webview — give it that webview at construction instead.
 pub fn close_home<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     use tauri::Manager;
     if let Some(w) = app.get_window(HOME_LABEL) {
