@@ -1,5 +1,5 @@
 name    = "shell-core"
-summary = "The shared Tauri app-shell + release tooling for warden and curator — one release pipeline a new sibling app inherits instead of copy-pasting"
+summary = "The shared Tauri app-shell + release tooling for warden, curator, and lector — one release pipeline a new sibling app inherits instead of copy-pasting"
 kind    = "library"
 status  = "active"
 tags    = ["tauri", "release", "tooling", "shared-core", "macos"]
