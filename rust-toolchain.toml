@@ -2,11 +2,10 @@
 # future CI — an unpinned `stable` drifts and re-wraps committed code. rustup
 # auto-installs this on first cargo use.
 #
-# config-core is the shared crate behind warden and curator, so treat THIS pin as
-# the canonical version for all three: bump it here first, then match it in each
-# consumer's own rust-toolchain.toml. config-core is a *git dependency* of those
-# apps, so this pin does NOT reach them automatically — it governs only standalone
-# config-core development; the consumers compile config-core with their own pin.
+# This is NOT the canonical pin — config-core's is. Match this to config-core's
+# channel when that one moves. shell-core is a *git dependency* of its consumers,
+# so this pin does NOT reach them: it governs only standalone shell-core
+# development, and each consuming app compiles shell-core with its own pin.
 [toolchain]
 channel = "1.96.0"
 components = ["rustfmt", "clippy"]

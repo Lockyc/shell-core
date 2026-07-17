@@ -1,6 +1,6 @@
 # shell-core — agent guide
 
-The third shared layer behind **curator** and **warden** (and future sibling Tauri apps), alongside
+The third shared layer behind **curator**, **warden**, and **lector**, alongside
 `chrome-core` (the sidebar view) and `config-core` (config primitives). shell-core owns the
 **build/release tooling** and the sliver of **Tauri runtime setup** that is byte-identical across
 those apps. Consumed by **git-rev pin** (never a path dep in git); shell-core is **main-only** — a
@@ -38,7 +38,10 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     a toolchain bump silently changes the filename and resets every window's saved bounds. It reads
     as "the app forgot my layout", never as a toolchain problem. (curator shipped this bug — fixed
     2026-07-16; warden was always correct. A new sibling app copying curator's shape must copy the
-    *fixed* version.)
+    *fixed* version — lector does: its single `fnv1a_64` lives in its **config crate**
+    (`lector-config/src/hash.rs`), not duplicated into `src-tauri` the way curator's is. The
+    dividing line above rules the hash out of shell-core; it does not mandate a per-app duplicate,
+    and lector's placement is a valid alternative to curator's.)
 
 ## The embed-and-materialize pattern (the tooling seam)
 
@@ -54,7 +57,7 @@ chrome-core's CSS/JS embed exactly.
   the consumer's tracked `scripts/tooling.env` (`APP_NAME`, `TAURI_CRATE_DIR`, `UPDATER_REPO`);
   everything else derives (`VERSION_FILE=${TAURI_CRATE_DIR}/Cargo.toml`, bundle `${APP_NAME}.app`,
   zip/tarball names, URLs from `${UPDATER_REPO}`). The `tests/scripts.rs` guard fails the build if
-  `warden`/`curator` leaks into a script or a script stops sourcing `tooling.env`.
+  `warden`/`curator`/`lector` leaks into a script or a script stops sourcing `tooling.env`.
 
 ## The zero-dep/runtime feature split (why it exists)
 
