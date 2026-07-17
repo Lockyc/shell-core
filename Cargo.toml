@@ -23,10 +23,12 @@ runtime = [
 ]
 
 [dependencies]
-# "unstable" is required for WindowBuilder / WebviewBuilder::new / Window::add_child — the home
-# surface (src/home.rs) builds its window the same way curator's build_error_window does (a raw
-# Window + an add_child webview), which needs it. Every consumer already carries this feature on
-# its own tauri dependency (for that same reason), so it costs nothing new downstream.
+# "unstable" is required for `Manager::get_window` — the home surface (src/home.rs) uses it to find
+# an already-open home window in `show_home`/`close_home`. It is NOT needed for the window's
+# construction: that went through `WebviewWindowBuilder` (stable) once the bare
+# `WindowBuilder` + `add_child` shape was removed for being broken on macOS 26 — see `close_home`'s
+# doc. Every consumer already carries this feature on its own tauri dependency (their content panes
+# do `add_child` a webview per tab), so it costs nothing new downstream.
 tauri = { version = "2", features = ["unstable"], optional = true }
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-process = { version = "2", optional = true }

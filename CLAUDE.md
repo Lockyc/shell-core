@@ -70,10 +70,12 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     pattern to grant against, which would silently break the page's `invoke()` calls. A
     Builder-registered custom protocol is the one option that is both self-contained (no consumer
     build.rs change) and `Origin::Local` (works with each app's capabilities file unchanged).
-  - **Needs the `unstable` Cargo feature on `tauri`** (`WindowBuilder`, `WebviewBuilder::new`, and
-    `Window::add_child` are gated behind it) — already on by every consumer's own `tauri` dependency
-    for the same reason curator's and lector's content webviews need it (both `add_child` a webview
-    per open tab), so this costs nothing new downstream.
+  - **Needs the `unstable` Cargo feature on `tauri`** — for `Manager::get_window` (`show_home` and
+    `close_home` look up an already-open home window). **Not** for the window's construction: that
+    is `WebviewWindowBuilder`, which is stable — the `WindowBuilder` + `add_child` shape that once
+    needed `unstable` is gone (see `close_home`'s doc). `unstable` is already on by every consumer's
+    own `tauri` dependency, since curator's and lector's content webviews `add_child` a webview per
+    open tab, so this costs nothing new downstream.
 
 **Out — and why (do not "consolidate" these; the divergence is real):**
 - **IPC fan-out** — curator centralizes `emit_to_*chrome` helpers with plain event names; warden

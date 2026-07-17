@@ -1,6 +1,7 @@
-//! Shared Tauri app-shell + release-tooling layer for the curator and warden apps (and future
-//! siblings). Consumed by git-rev pin, like `chrome-core` (the sidebar view) and `config-core`
-//! (config primitives). Two concerns, split by Cargo feature so a build-dependency stays light:
+//! Shared Tauri app-shell + release-tooling layer for the curator, warden, and lector apps (and
+//! future siblings). Consumed by git-rev pin, like `chrome-core` (the sidebar view) and
+//! `config-core` (config primitives). Two concerns, split by Cargo feature so a build-dependency
+//! stays light:
 //!
 //! - **Build/release tooling (default, zero-dep).** The three release scripts are the source of
 //!   truth here in `scripts/`, embedded as [`RELEASE_SH`]/[`GEN_LATEST_SH`]/[`INSTALL_APP_SH`]. A
@@ -99,8 +100,9 @@ mod runtime {
     /// chaining (`.setup(..).invoke_handler(..)` etc.).
     ///
     /// `state_filename` is the per-app window-state filename (each app derives its own, scoped by a
-    /// hash of its config path). `skip_labels` are transient windows excluded from state restore
-    /// (warden: its diagnostic + launcher windows; curator: its error window).
+    /// hash of its config path). `skip_labels` are transient windows excluded from state restore —
+    /// pass [`crate::home::HOME_LABEL`] (or its throwaway bounds get persisted and restored), plus
+    /// any of the app's own transient windows (warden's diagnostic window, for one).
     pub fn register_plugins<R: Runtime>(
         builder: Builder<R>,
         state_filename: String,
