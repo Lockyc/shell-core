@@ -11,11 +11,14 @@
 //!   `TAURI_CRATE_DIR`, `UPDATER_REPO`). [`build_stamp`] is the other build-time helper: a git
 //!   sha/date stamp for the About box.
 //! - **Runtime (`runtime` feature).** [`register_plugins`] installs the plugins every app registers
-//!   identically (window-state + updater + process) and the home surface's custom protocol. [`menu`]
-//!   builds the shared menu spine — the App/Config/Window submenus, identical across apps; each
-//!   app's own items (curator's Reload Tab, warden's tab semantics) interleave with it. [`home`] is
-//!   the surface an app shows when it would otherwise have no window (no config / a load error / a
-//!   valid config's window list), so it is never stranded invisible. Deliberately NOT shared: IPC
+//!   identically (window-state + updater + process) and the home + detach surfaces' custom
+//!   protocols. [`menu`] builds the shared menu spine — the App/Config/Window submenus, identical
+//!   across apps, plus the Close Tab and Pop Out Tab items; each app's own items (curator's Reload
+//!   Tab, warden's tab semantics) interleave with it. [`home`] is the surface an app shows when it
+//!   would otherwise have no window (no config / a load error / a valid config's window list), so
+//!   it is never stranded invisible. [`detach`] is the "pop a tab out into its own temporary
+//!   window" lifecycle — the label scheme + banner-shell window a detached tab gets; the app owns
+//!   moving the tab's actual content and all origin bookkeeping. Deliberately NOT shared: IPC
 //!   fan-out and the config watcher (diverged in structure per app), and the chrome-caller command
 //!   gate (curator-only — warden hosts no untrusted webviews).
 

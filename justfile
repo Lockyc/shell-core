@@ -10,8 +10,8 @@ export PATH := env_var('HOME') + "/.cargo/bin:" + env_var('PATH')
 default:
     @if command -v perl >/dev/null 2>&1; then just --color always --list | perl -CS -Mutf8 -lpe 'BEGIN{($w)=`stty size 2>/dev/null </dev/tty`=~/ (\d+)/; $w||=100; $col=(-t STDOUT && !exists $ENV{NO_COLOR})} s/\e\[[0-9;]*m//g unless $col; (my $v=$_)=~s/\e\[[0-9;]*m//g; if(length($v)>$w){my($o,$n)=("",0); while(length && $n<$w-1){ if($col && s/^(\e\[[0-9;]*m)//){$o.=$1}else{s/^(.)//;$o.=$1;$n++} } $_=$o."…".($col?"\e[0m":"")}'; else just --list; fi
 
-# NOTE: `menu` and `home` are both #[cfg(feature = "runtime")], so a BARE `cargo test` /
-# `cargo clippy` compiles neither and reports green having checked almost nothing. Every
+# NOTE: `menu`, `home`, and `detach` are all #[cfg(feature = "runtime")], so a BARE `cargo test` /
+# `cargo clippy` compiles none of them and reports green having checked almost nothing. Every
 # check recipe below therefore passes --features runtime. Don't drop it.
 
 # Run the test suite (--features runtime, or the unit tests don't compile in at all)

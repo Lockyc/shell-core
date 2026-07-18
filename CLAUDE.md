@@ -89,6 +89,43 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     needed `unstable` is gone (see `close_home`'s doc). `unstable` is already on by every consumer's
     own `tauri` dependency, since curator's and lector's content webviews `add_child` a webview per
     open tab, so this costs nothing new downstream.
+- **The detach surface** (`detach::{DETACH_LABEL_PREFIX, detached_label, is_detached_label,
+  detach_token, DetachSpec, open_detached, wire_return}`, `runtime` feature) — the "pop a tab out
+  into its own temporary window" lifecycle, consumed by warden/curator/lector alike. It owns two
+  things:
+  - **A reserved label scheme.** `DETACH_LABEL_PREFIX = "shell-detach:"` + `detached_label(token)`
+    build a window label for a popped-out tab; `is_detached_label`/`detach_token` are the inverse.
+    A consumer's hot-reload reconcile and window-state persistence both call `is_detached_label`
+    themselves to skip these windows wherever they encounter one — the same exclusion
+    `home::HOME_LABEL` gets, generalized from a single fixed label to an unbounded set (one per
+    detached tab). This is why `register_plugins`' `skip_labels` deliberately never carries a
+    detached label: that list is for windows known at *startup*, and a detached window is created
+    well after startup in response to a user action — there is no label to pass up front.
+  - **A banner-only shell page** (`detach.html` — title + origin accent, no sidebar), served over
+    its own custom protocol `DETACH_SCHEME`, registered on the `Builder` by
+    `register_detach_protocol` (chained into `register_plugins` alongside `home`'s). Same reasoning
+    as `HOME_SCHEME` above: a Builder-registered protocol is `Origin::Local`, so the detached
+    window's commands need no capability wiring beyond what a consumer already ships. The page
+    reports its content-hole rect via each app's existing `set_hole_rect` command — nothing new
+    there either. `open_detached(app, token, spec: &DetachSpec, app_name, birth_content)` builds
+    the window (a `WebviewWindowBuilder` primary webview, mirroring `show_home`'s construction
+    exactly — never `WindowBuilder` + `add_child`, per the macOS-26 `close_home` bug above), injects
+    `window.__SHELL_DETACH__`, then hands the built window to `birth_content` to dock the app's
+    real content into (a failed dock closes the window and propagates the error, so no
+    banner-only orphan is left behind). `wire_return(&window, on_close)` installs the `Destroyed`
+    handler that fires the app's return orchestration.
+  - **Dividing line: shell-core owns the WHEN, the app owns the WHAT.** The window shell, the label
+    convention, and the close trigger live here; moving the tab's actual content (warden
+    re-parents a native surface, curator/lector recreate a webview) and *all* origin bookkeeping —
+    which window/tab a detached window came from, reopening/redocking on return, rebuilding the
+    menu — lives entirely in the app's `birth_content`/`on_close` closures. shell-core stores no
+    origin state of its own. Same shape as `home`: shell-core owns the surface, the app wires the
+    actions.
+  - **The menu spine's Pop Out Tab item** (`menu::ids::POP_OUT_TAB`, `⌘⇧O` /
+    `menu::ACCEL_POP_OUT_TAB`) is built alongside Close Tab in `build_spine` and returned
+    (`Spine::pop_out_tab`) for the app to place in its own tab submenu, for the identical reason
+    `close_tab` is returned rather than handled: it needs the focused window, which only the app
+    can resolve. The spine builds the item; it does not act on it.
 
 **Out — and why (do not "consolidate" these; the divergence is real):**
 - **IPC fan-out** — curator centralizes `emit_to_*chrome` helpers with plain event names; warden
