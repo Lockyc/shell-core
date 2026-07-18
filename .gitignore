@@ -5,3 +5,4 @@ Cargo.lock
 # Ephemeral spec/plan/brainstorm scratch — kept on disk, never tracked
 docs/superpowers/
 .superpowers/
+.DS_Store
