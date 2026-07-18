@@ -60,6 +60,9 @@ pub mod menu;
 #[cfg(feature = "runtime")]
 pub mod home;
 
+#[cfg(feature = "runtime")]
+pub mod detach;
+
 /// Emit a build stamp so the About box can confirm the installed app matches a given commit. Prints
 /// `cargo:rustc-env=BUILD_GIT_SHA=<short>[-dirty]` and `cargo:rustc-env=BUILD_DATE=<YYYY-MM-DD>`,
 /// plus a `rerun-if-changed` on the git ref log so it re-stamps on every commit/checkout. Call from
