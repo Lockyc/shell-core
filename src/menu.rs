@@ -29,8 +29,10 @@ pub const ACCEL_CLOSE_TAB: &str = "Cmd+KeyW";
 pub const ACCEL_CLOSE_WINDOW: &str = "Shift+Cmd+KeyW";
 
 /// The family's Pop Out Tab accelerator. ⌘⇧O ("Out") — clear of every other menu accelerator in
-/// the family and of libghostty's built-in tab chords; a menu accelerator wins over any colliding
-/// terminal keybind regardless (each app gives its menu first refusal on `performKeyEquivalent:`).
+/// the family. In warden it must also not collide with libghostty's built-in tab chords, and there
+/// it can't: warden gives its menu first refusal on `performKeyEquivalent:`, so a menu accelerator
+/// wins over any colliding terminal keybind (curator and lector embed no terminal, so the question
+/// doesn't arise for them).
 pub const ACCEL_POP_OUT_TAB: &str = "Shift+Cmd+KeyO";
 
 /// One configured window, for the Window submenu's selector and the home surface's list.
@@ -96,17 +98,17 @@ use tauri::menu::{
     AboutMetadataBuilder, CheckMenuItemBuilder, MenuItem, MenuItemBuilder, Submenu, SubmenuBuilder,
 };
 
-/// What `build_spine` hands back: the shared submenus, plus the Close Tab item for the app to
-/// place in its own tab submenu (every app's differs).
+/// What `build_spine` hands back: the shared submenus, plus the Close Tab and Pop Out Tab items for
+/// the app to place in its own tab submenu (every app's differs).
 pub struct Spine<R: tauri::Runtime> {
     pub submenus: Vec<Submenu<R>>,
     pub close_tab: MenuItem<R>,
     pub pop_out_tab: MenuItem<R>,
 }
 
-/// Build the App, Config, and Window submenus plus the Close Tab item. Returns them for the app to
-/// place among its own — this does NOT set the menu, mirroring how `register_plugins` returns the
-/// `Builder` for continued chaining.
+/// Build the App, Config, and Window submenus plus the Close Tab and Pop Out Tab items. Returns
+/// them for the app to place among its own — this does NOT set the menu, mirroring how
+/// `register_plugins` returns the `Builder` for continued chaining.
 ///
 /// The About box carries the app's version plus the `build_stamp()` sha/date, so a glance confirms
 /// the installed app matches a given commit.
