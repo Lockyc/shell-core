@@ -8,15 +8,18 @@
          banner is the content hole, reported to the native layer via set_hole_rect so whatever
          the app composites there (a libghostty surface, a webview) lines up under it. */
       html, body { margin: 0; height: 100%; background: transparent; font-family: -apple-system,
-        BlinkMacSystemFont, system-ui, sans-serif; color: #e8e2da; }
+        BlinkMacSystemFont, system-ui, sans-serif; color: #fff; }
+      /* The banner IS the origin window's accent colour — the same treatment chrome-core gives
+         its `#cc-banner` (`this.banner.style.background = windowColour`), so a popped-out window
+         reads as belonging to the window it came from. Neutral grey fallback (chrome-core's own
+         `#cc-banner` default) when the payload carries no colour.
+         `padding-left: 78px` clears the macOS traffic lights: the window uses an Overlay titlebar,
+         so the three lights float over the banner's top-left, and 78px is where they end at
+         standard metrics — the same inset chrome-core reserves as `--cc-lights-inset`. */
       #banner { position: relative; height: 2.25rem; box-sizing: border-box; display: flex;
-        align-items: center; padding: 0 .9rem 0 1.1rem; background: #14110f;
+        align-items: center; padding: 0 .9rem 0 78px; background: var(--accent, #6b7280);
         -webkit-user-select: none; }
-      /* Left accent stripe — the tab's/window's own colour, same swatch chrome-core uses in the
-         sidebar row. Falls back to a neutral grey when the payload carries no colour. */
-      #banner::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
-        background: var(--accent, #4a423c); }
-      #title { font-size: .8rem; font-weight: 600; letter-spacing: .01em; overflow: hidden;
+      #title { font-size: .8rem; font-weight: 700; letter-spacing: .01em; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap; }
     </style>
   </head>
