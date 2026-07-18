@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gate:
+    # `--features runtime` pulls tauri (webview): it builds cleanly on macOS with
+    # the system webkit, without the extra system libs a Linux runner would need.
+    # A bare `cargo test`/`clippy` compiles almost none of the crate (menu/home/
+    # detach are all #[cfg(feature = "runtime")]), so every step passes the feature.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner's rustup reads rust-toolchain.toml and installs the pinned
+      # channel + components. No toolchain action: pinning it to @stable would
+      # override the file and reintroduce the drift it exists to prevent.
+      - name: install the pinned toolchain (rust-toolchain.toml)
+        run: rustup show
+
+      - name: fmt check
+        run: cargo fmt --check
+
+      - name: clippy (--features runtime, or menu/home aren't linted)
+        run: cargo clippy --features runtime --all-targets -- -D warnings
+
+      - name: test (--features runtime, or the unit tests don't compile in)
+        run: cargo test --features runtime
