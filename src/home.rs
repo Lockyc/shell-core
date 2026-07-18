@@ -88,7 +88,10 @@ pub fn home_state(
 /// Escape a string for embedding inside a double-quoted JS (and, since the escapes we emit are a
 /// subset of JSON's, JSON) string literal. Ported from curator's `js_string_escape` — curator's own
 /// copy is deleted once it adopts this surface.
-fn js_string_escape(s: &str) -> String {
+///
+/// `pub(crate)` so [`crate::detach`] reuses it for its own payload builder instead of carrying a
+/// second copy — one source of truth for the escaping both surfaces need.
+pub(crate) fn js_string_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
         match c {

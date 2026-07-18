@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>detached</title>
+    <style>
+      /* The window itself is transparent (set at creation, later work) — everything below the
+         banner is the content hole, reported to the native layer via set_hole_rect so whatever
+         the app composites there (a libghostty surface, a webview) lines up under it. */
+      html, body { margin: 0; height: 100%; background: transparent; font-family: -apple-system,
+        BlinkMacSystemFont, system-ui, sans-serif; color: #e8e2da; }
+      #banner { position: relative; height: 2.25rem; box-sizing: border-box; display: flex;
+        align-items: center; padding: 0 .9rem 0 1.1rem; background: #14110f;
+        -webkit-user-select: none; }
+      /* Left accent stripe — the tab's/window's own colour, same swatch chrome-core uses in the
+         sidebar row. Falls back to a neutral grey when the payload carries no colour. */
+      #banner::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+        background: var(--accent, #4a423c); }
+      #title { font-size: .8rem; font-weight: 600; letter-spacing: .01em; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <div id="banner" data-tauri-drag-region>
+      <span id="title"></span>
+    </div>
+    <script>
+      const banner = document.getElementById('banner');
+      const titleEl = document.getElementById('title');
+
+      const payload = window.__SHELL_DETACH__
+        ? JSON.parse(window.__SHELL_DETACH__)
+        : { appName: '', title: '', colour: null };
+
+      document.title = payload.title || payload.appName || '';
+      titleEl.textContent = payload.title || '';
+      if (payload.colour) banner.style.setProperty('--accent', payload.colour);
+
+      // Report the content hole (everything below the banner) to the app's native layer, on load
+      // + resize — the exact `set_hole_rect` shape warden's/curator's/lector's own controllers
+      // already invoke for their own content holes. Guarded so this page can also be opened
+      // standalone (no window.__TAURI__) for visual inspection.
+      function reportRect() {
+        if (!window.__TAURI__) return;
+        const bannerHeight = banner.getBoundingClientRect().height;
+        const rect = {
+          x: 0,
+          y: bannerHeight,
+          width: window.innerWidth,
+          height: Math.max(0, window.innerHeight - bannerHeight),
+        };
+        window.__TAURI__.core.invoke('set_hole_rect', { rect }).catch((err) => {
+          console.error('shell-detach: set_hole_rect failed', err);
+        });
+      }
+
+      reportRect();
+      window.addEventListener('resize', reportRect);
+    </script>
+  </body>
+</html>
