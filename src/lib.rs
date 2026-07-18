@@ -49,6 +49,11 @@ pub fn materialize_scripts(dir: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Shared tab-selection policy (`pick_live_neighbour`). Zero-dependency, so it stays on the
+/// default (non-`runtime`) surface — every consumer, build-dep or runtime dep, can call it.
+pub mod tabs;
+pub use tabs::pick_live_neighbour;
+
 #[cfg(feature = "runtime")]
 pub mod menu;
 

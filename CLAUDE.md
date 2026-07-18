@@ -15,6 +15,12 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
 - The three release scripts (`scripts/release.sh`, `gen-latest-json.sh`, `install-app.sh`) — generic,
   param-driven, embedded + materialized (below).
 - `build_stamp()` — git sha/date → `BUILD_GIT_SHA`/`BUILD_DATE` for the About box.
+- **The shared tab-unload policy** (`tabs::pick_live_neighbour`, default surface — no `runtime`
+  feature). One decision every app makes identically: which sibling tab becomes active after a
+  tab is unloaded. Pure index logic, zero-dependency, window-agnostic — the loaded/unloaded state
+  it's handed is each app's own concern. It lives here rather than in chrome-core's JS because
+  warden auto-unloads a tab straight from Rust (`handle_child_exited`, on child-process exit), with
+  no chrome round-trip to hook the decision into.
 - `register_plugins()` (`runtime` feature) — window-state + updater + process, the three plugins
   every app registers the same way.
 - **The menu spine** (`menu::build_spine`, `runtime` feature) — the App submenu (About +
