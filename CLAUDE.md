@@ -1,3 +1,10 @@
+---
+type: architecture
+links:
+  - rel: see-also
+    to: README.md
+---
+
 # shell-core — agent guide
 
 The third shared layer behind **curator**, **warden**, and **lector**, alongside
