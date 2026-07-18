@@ -13,6 +13,7 @@ pub mod ids {
     pub const EDIT_CONFIG: &str = "shell:edit_config";
     pub const REVEAL_CONFIG: &str = "shell:reveal_config";
     pub const CLOSE_TAB: &str = "shell:close_tab";
+    pub const POP_OUT_TAB: &str = "shell:pop_out_tab";
     pub const CLOSE_WINDOW: &str = "shell:close_window";
     pub const OPEN_WINDOW_PREFIX: &str = "shell:open_window:";
 }
@@ -26,6 +27,11 @@ pub mod ids {
 /// respawns on next select), so there is nothing app-specific left to parameterise.
 pub const ACCEL_CLOSE_TAB: &str = "Cmd+KeyW";
 pub const ACCEL_CLOSE_WINDOW: &str = "Shift+Cmd+KeyW";
+
+/// The family's Pop Out Tab accelerator. ⌘⇧O ("Out") — clear of every other menu accelerator in
+/// the family and of libghostty's built-in tab chords; a menu accelerator wins over any colliding
+/// terminal keybind regardless (each app gives its menu first refusal on `performKeyEquivalent:`).
+pub const ACCEL_POP_OUT_TAB: &str = "Shift+Cmd+KeyO";
 
 /// One configured window, for the Window submenu's selector and the home surface's list.
 #[derive(Debug, Clone)]
@@ -95,6 +101,7 @@ use tauri::menu::{
 pub struct Spine<R: tauri::Runtime> {
     pub submenus: Vec<Submenu<R>>,
     pub close_tab: MenuItem<R>,
+    pub pop_out_tab: MenuItem<R>,
 }
 
 /// Build the App, Config, and Window submenus plus the Close Tab item. Returns them for the app to
@@ -146,6 +153,12 @@ pub fn build_spine<R: tauri::Runtime, M: tauri::Manager<R>>(
         .accelerator(ACCEL_CLOSE_TAB)
         .build(manager)?;
 
+    // Same rationale as close_tab: returned for the app's own tab submenu, built here so the id
+    // and accelerator can't drift per app.
+    let pop_out_tab = MenuItemBuilder::with_id(ids::POP_OUT_TAB, "Pop Out Tab")
+        .accelerator(ACCEL_POP_OUT_TAB)
+        .build(manager)?;
+
     let close_window = MenuItemBuilder::with_id(ids::CLOSE_WINDOW, "Close Window")
         .accelerator(ACCEL_CLOSE_WINDOW)
         .build(manager)?;
@@ -177,6 +190,7 @@ pub fn build_spine<R: tauri::Runtime, M: tauri::Manager<R>>(
     Ok(Spine {
         submenus: vec![app_menu, config_menu, window_menu],
         close_tab,
+        pop_out_tab,
     })
 }
 
@@ -225,5 +239,10 @@ mod tests {
         // proved a per-app copy of this convention can't hold.
         assert_eq!(ACCEL_CLOSE_TAB, "Cmd+KeyW");
         assert_eq!(ACCEL_CLOSE_WINDOW, "Shift+Cmd+KeyW");
+    }
+
+    #[test]
+    fn pop_out_accelerator_is_the_family_standard() {
+        assert_eq!(ACCEL_POP_OUT_TAB, "Shift+Cmd+KeyO");
     }
 }
