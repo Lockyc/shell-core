@@ -111,6 +111,17 @@ mod runtime {
     /// hash of its config path). `skip_labels` are transient windows excluded from state restore —
     /// pass [`crate::home::HOME_LABEL`] (or its throwaway bounds get persisted and restored), plus
     /// any of the app's own transient windows (warden's diagnostic window, for one).
+    ///
+    /// **Detached-tab windows are deliberately never in `skip_labels`.** That list is for windows
+    /// known at *startup* — `skip_initial_state` only has an effect on the plugin's automatic
+    /// restore, which runs before any window this app builds at runtime exists. A detached window
+    /// (label under [`crate::detach::DETACH_LABEL_PREFIX`]) is created well after startup, by
+    /// [`crate::detach::open_detached`], in response to the user popping a tab out — there is no
+    /// startup-time label to pass here. Instead, the app's own window-state usage (wherever it
+    /// calls `restore_state`/persists bounds) and its hot-reload reconcile must each call
+    /// [`crate::detach::is_detached_label`] themselves to skip these windows at the point they're
+    /// encountered, the same way `home::HOME_LABEL` is excluded structurally rather than by list
+    /// membership once created.
     pub fn register_plugins<R: Runtime>(
         builder: Builder<R>,
         state_filename: String,
@@ -126,11 +137,13 @@ mod runtime {
             .plugin(ws.with_filename(state_filename).build())
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_process::init());
-        // The home surface's page is served over its own custom protocol rather than materialized
-        // into each consumer's frontendDist — see `home::HOME_SCHEME`'s doc for why that's what
-        // keeps its webview's origin classified `local` (so its commands need no extra capability
-        // wiring). Registered here alongside the rest of the identical runtime setup.
-        crate::home::register_protocol(builder)
+        // The home surface's and the detach surface's pages are each served over their own custom
+        // protocol rather than materialized into each consumer's frontendDist — see
+        // `home::HOME_SCHEME`'s doc for why that's what keeps their webviews' origin classified
+        // `local` (so their commands need no extra capability wiring). Registered here alongside
+        // the rest of the identical runtime setup.
+        let builder = crate::home::register_protocol(builder);
+        crate::detach::register_detach_protocol(builder)
     }
 }
 

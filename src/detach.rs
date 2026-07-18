@@ -12,9 +12,6 @@
 //!   content hole, reporting that hole's rect to the app via `set_hole_rect` — every app already
 //!   exposes that command identically.
 //!
-//! Not yet built: the window-opening function and the return-to-home orchestration (YAGNI until
-//! there's a caller — later work).
-//!
 //! Touches no config-core symbol — the cores stay mutually independent.
 
 /// Prefix marking a window label as a detached-tab window. A label under this prefix is never a
@@ -53,11 +50,6 @@ const DETACH_SCHEME: &str = "shell-detach";
 /// The embedded banner-shell page. Served at runtime over [`DETACH_SCHEME`] (never via
 /// `WebviewUrl::App`, which would require materializing it into each consumer's own
 /// `frontendDist`).
-///
-/// `#[allow(dead_code)]`: only [`register_detach_protocol`] reads this, and that function isn't
-/// chained into [`register_plugins`](crate::register_plugins) yet — no caller until the
-/// window-opening orchestration lands. Remove the allow once that wiring exists.
-#[allow(dead_code)]
 const DETACH_HTML: &str = include_str!("detach.html");
 
 /// What a popped-out tab's banner shows, plus the size the detached window should open at.
@@ -74,12 +66,7 @@ pub struct DetachSpec {
 /// literal (every string run through [`crate::home::js_string_escape`] — the same function
 /// `home::payload_json` uses, not a second copy) rather than pulling in `serde_json` for one fixed
 /// object. Only the page-relevant fields are embedded: `width`/`height` size the *window* at
-/// creation time (later work), the page itself never reads them.
-///
-/// `#[allow(dead_code)]`: exercised by the escaping tests below; no production caller until the
-/// window-opening orchestration (later work) builds a [`DetachSpec`] and calls this to construct
-/// its `initialization_script`, mirroring [`crate::home::show_home`]. Remove the allow then.
-#[allow(dead_code)]
+/// creation time, the page itself never reads them.
 fn detach_payload_json(spec: &DetachSpec, app_name: &str) -> String {
     let colour = match &spec.colour {
         Some(c) => format!("\"{}\"", crate::home::js_string_escape(c)),
@@ -93,14 +80,8 @@ fn detach_payload_json(spec: &DetachSpec, app_name: &str) -> String {
 }
 
 /// Register [`DETACH_SCHEME`], serving [`DETACH_HTML`] for any request. Mirrors
-/// [`crate::home::register_protocol`] exactly. Not yet chained into
-/// [`register_plugins`](crate::register_plugins) — that lands with the window-opening
-/// orchestration, once there's a caller.
-///
-/// `#[allow(dead_code)]` until that wiring exists — this task defines the protocol handler, the
-/// next task chains it in (the same split [`register_protocol`](crate::home::register_protocol)
-/// went through before `register_plugins` picked it up).
-#[allow(dead_code)]
+/// [`crate::home::register_protocol`] exactly. Chained into
+/// [`register_plugins`](crate::register_plugins) alongside the home surface's protocol.
 pub(crate) fn register_detach_protocol<R: tauri::Runtime>(
     builder: tauri::Builder<R>,
 ) -> tauri::Builder<R> {
@@ -113,6 +94,85 @@ pub(crate) fn register_detach_protocol<R: tauri::Runtime>(
             .body(DETACH_HTML.as_bytes().to_vec())
             .expect("static response body")
     })
+}
+
+/// Open a detached tab's window: the banner-shell surface (this window's *primary* webview,
+/// serving [`DETACH_HTML`] over [`DETACH_SCHEME`]) plus whatever content the caller docks into it.
+///
+/// Mirrors [`crate::home::show_home`]'s construction exactly, for the same reason
+/// [`crate::home::close_home`]'s doc records: a bare `WindowBuilder` + `add_child`ed webview is
+/// confirmed broken on macOS 26 (`close()` returns `Ok` but the window stays painted on screen).
+/// So this — like every real content window in every consumer — gives the window its webview at
+/// construction via `WebviewWindowBuilder`, never adds one on afterward.
+///
+/// `token` identifies the detached tab (becomes [`detached_label`]); `spec` supplies the banner's
+/// title/colour and the window's initial size; `app_name` flows into the payload the same way it
+/// does for the home surface. After the window is built, `birth_content` gets a chance to dock the
+/// app's own content into it (e.g. `add_child` a second webview, or hand a native surface its
+/// rect) — on `Err`, the freshly-built window is closed and the error propagated, so a failed dock
+/// never leaves an empty banner-only window behind. On success, returns the window's label so the
+/// caller can look it up again (e.g. to call [`wire_return`]).
+pub fn open_detached<R, F>(
+    app: &tauri::AppHandle<R>,
+    token: &str,
+    spec: &DetachSpec,
+    app_name: &str,
+    birth_content: F,
+) -> tauri::Result<String>
+where
+    R: tauri::Runtime,
+    F: FnOnce(&tauri::WebviewWindow<R>) -> tauri::Result<()>,
+{
+    let label = detached_label(token);
+    let payload = detach_payload_json(spec, app_name);
+
+    let url: tauri::Url = format!("{DETACH_SCHEME}://localhost/")
+        .parse()
+        .expect("DETACH_SCHEME url is a fixed, valid literal");
+
+    // The payload is embedded as an escaped JS STRING (not a raw object literal), exactly like
+    // `home::show_home`'s `window.__SHELL_HOME__` — the page `JSON.parse`s it.
+    let window =
+        tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::CustomProtocol(url))
+            .title(&spec.title)
+            .inner_size(spec.width, spec.height)
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
+            .transparent(true)
+            .initialization_script(format!(
+                "window.__SHELL_DETACH__ = \"{}\";",
+                crate::home::js_string_escape(&payload)
+            ))
+            .build()?;
+
+    if let Err(e) = birth_content(&window) {
+        let _ = window.close();
+        return Err(e);
+    }
+
+    Ok(label)
+}
+
+/// Install the detached window's return orchestration: when the window closes, run `on_close`.
+///
+/// shell-core owns only the *when* — the window's `Destroyed` event — never the *what*. The app's
+/// `on_close` closure owns all origin bookkeeping: reopening the origin window if the user closed
+/// it while the tab was detached, redocking the content back into that origin, clearing the app's
+/// own "this tab is detached" placeholder, and rebuilding the menu to drop the now-gone window's
+/// entry. shell-core does not track which origin window/tab a detached window came from anywhere
+/// in its own state — that association lives entirely in the app's manager, captured by the
+/// closure the app passes in here. Mirrors how `home.rs` leaves "Create a starter config" to the
+/// app: shell-core wires the moment, the app supplies the behaviour.
+pub fn wire_return<R, F>(window: &tauri::WebviewWindow<R>, on_close: F)
+where
+    R: tauri::Runtime,
+    F: Fn() + Send + 'static,
+{
+    window.on_window_event(move |e| {
+        if let tauri::WindowEvent::Destroyed = e {
+            on_close();
+        }
+    });
 }
 
 #[cfg(test)]

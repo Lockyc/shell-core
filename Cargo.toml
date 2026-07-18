@@ -29,7 +29,15 @@ runtime = [
 # `WindowBuilder` + `add_child` shape was removed for being broken on macOS 26 — see `close_home`'s
 # doc. Every consumer already carries this feature on its own tauri dependency (their content panes
 # do `add_child` a webview per tab), so it costs nothing new downstream.
-tauri = { version = "2", features = ["unstable"], optional = true }
+#
+# "macos-private-api" is required for `WebviewWindowBuilder::transparent` (src/detach.rs's
+# `open_detached` — the detached window's shell composites over a hole exactly like every app's own
+# content windows). Cargo feature unification would cover this for free when shell-core is only
+# ever built *inside* a consumer (every app already carries the feature on its own tauri
+# dependency, per the note above) — but shell-core must also build and gate-check standalone (`just
+# gate` here, `cargo build -p shell-core --features runtime`), with no consumer's Cargo.toml around
+# to unify features from, so it has to request it itself.
+tauri = { version = "2", features = ["unstable", "macos-private-api"], optional = true }
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-process = { version = "2", optional = true }
 tauri-plugin-window-state = { version = "2", optional = true }
