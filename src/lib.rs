@@ -26,8 +26,10 @@
 //!   warden composites a native `NSView` through its own geometry, so it is not a consumer.
 //!   [`watch`] is the config-file hot-reload watcher for curator + lector (parent-dir watch, file-name
 //!   match, echo-swallow via a config-agnostic seam — the app parses); warden's own watcher parses
-//!   inside + drives a deeper reconcile, so it keeps its own. Deliberately NOT shared: IPC fan-out,
-//!   and the chrome-caller command gate (curator-only — warden hosts no untrusted webviews).
+//!   inside + drives a deeper reconcile, so it keeps its own. Deliberately NOT shared: IPC fan-out
+//!   (per-app event shapes) and warden's native compositing/registry. The per-caller
+//!   command-isolation model — why a Tauri command needs a label gate, or doesn't (origin dispatch's
+//!   job, given no app ACL manifest) — is documented once in this crate's CLAUDE.md, not per app.
 
 /// Embedded source of `scripts/release.sh` — the generic build+notarize+upload release script.
 /// A consumer's `build.rs` writes this into its own `scripts/release.sh` (git-ignored).

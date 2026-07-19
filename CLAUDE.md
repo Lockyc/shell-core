@@ -29,7 +29,32 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   warden auto-unloads a tab straight from Rust (`handle_child_exited`, on child-process exit), with
   no chrome round-trip to hook the decision into.
 - `register_plugins()` (`runtime` feature) — window-state + updater + process, the three plugins
-  every app registers the same way.
+  every app registers the same way. It also owns the **window-state filename policy**: given an
+  app's resolved config path (`Option<&Path>`) it derives
+  `.window-state-{fnv1a_64(canonicalize(path)):016x}.json` (`state_filename`). The
+  canonicalize→hash→format step was byte-identical across all three apps — only the *path* is
+  app-specific — so it lives here once (the old per-app copies + their "each app hashes its own
+  path" comments were the drift this removed). shell-core's `fnv1a_64` is a spec-defined,
+  test-vector-pinned primitive, **not** a shadow of the config crates' own `fnv1a_64` (that hashes
+  window titles / tab dirs for *label identity* — a separate domain that stays in each config crate).
+  - **Footgun that survives:** the hash drives a *persistent on-disk filename*, so it must use a
+    **fixed** algorithm (`fnv1a_64`), never `std::hash::DefaultHasher` — its output isn't guaranteed
+    stable across Rust releases, so a toolchain bump silently changes the filename and resets every
+    window's saved bounds ("the app forgot my layout"). curator shipped that bug (fixed 2026-07-16);
+    the pinned test vectors here are what keep it fixed. Don't swap the algorithm.
+- **`compositing`** (`runtime` feature) — the hole-punch content-webview placement (`HoleRect`,
+  `CHROME_W`, `initial_hole`, `layout_webviews`) shared byte-identically by curator + lector: the
+  sidebar chrome is the window's main webview, and `add_child` content webviews are positioned to
+  fill the reported hole. warden is **not** a consumer — it composites a native `NSView` through its
+  own `geometry.rs` (Y-flip + HiDPI), genuine divergence left alone.
+- **`watch`** (`runtime` feature) — the config-file hot-reload watcher for curator + lector
+  (`watch_config`): parent-dir watch (atomic-save-robust), **file-name** event match (macOS
+  FSEvents-robust — the fix for the exact-path bug curator + lector both shipped), and an echo-swallow
+  seam that stays config-agnostic (the app's `on_change` returns `Some(bytes)` on a format-write, and
+  shell-core swallows the echo — it never parses, so no `config-core` edge). warden keeps its own
+  watcher: it parses inside + drives a slow root-scan/main-thread reconcile and relies on
+  `format_file`'s diff-guard, a genuinely different contract (and the file-name-match reference this
+  was modelled on).
 - **The menu spine** (`menu::build_spine`, `runtime` feature) — the App submenu (About +
   Check for Updates…), the Config submenu (Edit Config / Reveal in Finder), and the Window submenu
   (minimize/maximize/fullscreen, Close Window, and a checked per-window selector). Returns the
@@ -136,25 +161,48 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
 **Out — and why (do not "consolidate" these; the divergence is real):**
 - **IPC fan-out** — curator centralizes `emit_to_*chrome` helpers with plain event names; warden
   inlines `emit_to` at each site with app-namespaced events (`warden:refresh`) + a `forMe()` filter.
-  Different structures; a shared helper would fight both.
-- **The config watcher** — diverged in shape between the apps.
-- **The chrome-caller command gate (`is_chrome_caller`) — curator-only.** curator hosts arbitrary web
-  content in sibling webviews, so it must reject commands from non-chrome callers. warden's surfaces
-  are native NSViews — it has no untrusted webview to spoof a call — so it has no such gate and never
-  needs one. Sharing it would push dead, misleading security code into warden.
-- **`window_state_filename()` stays per-app** — each app hashes its own config path. It is passed
-  *into* `register_plugins`, not owned here. **Do not move the hash here** to deduplicate it — the
-  ~8-line `fnv1a_64` each app carries is the deliberate cost of that boundary.
-  - **Footgun every consumer must keep honouring:** the hash drives a *persistent on-disk filename*,
-    so it must use a **fixed** algorithm — `fnv1a_64`, pinned by a known-vectors test in each app.
-    Never `std::hash::DefaultHasher`: its output is **not** guaranteed stable across Rust releases, so
-    a toolchain bump silently changes the filename and resets every window's saved bounds. It reads
-    as "the app forgot my layout", never as a toolchain problem. (curator shipped this bug — fixed
-    2026-07-16; warden was always correct. A new sibling app copying curator's shape must copy the
-    *fixed* version — lector does: its single `fnv1a_64` lives in its **config crate**
-    (`lector-config/src/hash.rs`), not duplicated into `src-tauri` the way curator's is. The
-    dividing line above rules the hash out of shell-core; it does not mandate a per-app duplicate,
-    and lector's placement is a valid alternative to curator's.)
+  Different structures; a shared helper would fight both. (curator + lector do share the tiny
+  `emit_to_focused_chrome` helper by copy — lifting it would force a `serde` dep on shell-core to
+  name the `Serialize` bound, not worth it for a 5-line non-drift helper.)
+- **warden's native compositing + tab registry** — its `NSView` hole-punch (`geometry.rs`) and its
+  `TabSlot` state machine over the `TerminalSurface` trait are a different beast from curator/lector's
+  webview registries; genuinely per-app.
+
+## The command-isolation security model — single-sourced here
+
+This is the shared reasoning for *why a Tauri app command needs (or doesn't need) a per-caller
+gate*. It lived only in lector's `commands.rs` header; it belongs here so a future sibling app finds
+it instead of copying curator's redundant gate. **Verified against the pinned `tauri = 2.11.5`
+vendored source.**
+
+- **A crate's own `#[tauri::command]`s are gated by *origin*, not by a hand-rolled label check** —
+  *given the app ships no app-command ACL manifest*. Dispatch (`webview/mod.rs:on_message`) only
+  requires a resolved ACL when `has_app_acl_manifest || !is_local`. The sidebar chrome is the
+  window's main webview loaded from `frontendDist` (`tauri://…`) → `Origin::Local`, so with no app
+  manifest its invokes pass unconditionally; a content webview loading `http://127.0.0.1:{port}/` or
+  an `External` page is `Origin::Remote`, so `!is_local` is true and the invoke is **rejected before
+  any command body runs**, gate or no gate.
+- **So a `require_chrome`/`is_chrome_caller` label gate is redundant against the *remote-content*
+  threat** — Tauri's origin dispatch already covers it. The one thing a label gate *uniquely* covers
+  is a **second *local* surface** (a home/detach page, or any Builder-registered custom protocol,
+  all `Origin::Local`) that hosts *untrusted* content — origin dispatch is local-vs-remote and won't
+  screen one local surface from another.
+- **The wrong premise this replaces:** "the gate is curator-only because only curator hosts untrusted
+  webviews." **False both ways** — lector hosts remote `127.0.0.1` content too (same threat shape),
+  and origin dispatch, not the gate, is what isolates it. shell-core's own home + detach surfaces are
+  exactly the second-*local*-surface case, but they serve **fixed, shell-core-bundled** HTML (no
+  untrusted content), so they need no gate. A future third local surface hosting anything
+  user-supplied would need an explicit gate.
+- **curator's `require_chrome` is therefore redundant belt-and-braces** (curator meets the
+  precondition exactly: tauri 2.11.5, and its capability grants only `core:*`/`updater`/`process` —
+  zero app-command permissions). It can stay as defense-in-depth or be narrowed to a
+  local-surface-only screen — a **security-sensitive judgment call left to the maintainer**, not a
+  mechanical cleanup (see the lift-plan's security section).
+- **This bypass does NOT extend to core *plugin* commands** (`core:event`, `core:window`, updater,
+  process) — those are gated by their own default-denied permission set regardless of the app
+  manifest, so each app still ships a `capabilities/*.json` granting the sidebar exactly the plugin
+  permissions it uses. (Footgun: before that file existed, `event.listen`/window-drag silently
+  no-op'd — the rejection comes from the plugin's ACL, not the crate-command dispatch path above.)
 
 ## The embed-and-materialize pattern (the tooling seam)
 
