@@ -112,8 +112,14 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     exactly — never `WindowBuilder` + `add_child`, per the macOS-26 `close_home` bug above), injects
     `window.__SHELL_DETACH__`, then hands the built window to `birth_content` to dock the app's
     real content into (a failed dock closes the window and propagates the error, so no
-    banner-only orphan is left behind). `wire_return(&window, on_close)` installs the `Destroyed`
-    handler that fires the app's return orchestration.
+    banner-only orphan is left behind). `wire_return(app, label, on_close)` installs the `Destroyed`
+    handler that fires the app's return orchestration — it resolves the window by label via
+    `get_window` **itself** (never `get_webview_window`), so a caller can't pick the wrong lookup.
+    That matters: an app that docks its content in as an *added child webview* (curator/lector)
+    makes a **multi-webview** window, which Tauri exposes only under `get_window`/`windows` — a
+    `get_webview_window` lookup returns `None`, silently skipping the wiring so the tab could never
+    redock (its origin row stayed stuck on the pop-in affordance). `get_window` is correct for that
+    case and for warden's single-webview native-surface window alike.
   - **Dividing line: shell-core owns the WHEN, the app owns the WHAT.** The window shell, the label
     convention, and the close trigger live here; moving the tab's actual content (warden
     re-parents a native surface, curator/lector recreate a webview) and *all* origin bookkeeping —
