@@ -153,7 +153,8 @@ where
     Ok(label)
 }
 
-/// Install the detached window's return orchestration: when the window closes, run `on_close`.
+/// Install the detached window's return orchestration: when the window (named by `label`) closes,
+/// run `on_close`.
 ///
 /// shell-core owns only the *when* — the window's `Destroyed` event — never the *what*. The app's
 /// `on_close` closure owns all origin bookkeeping: reopening the origin window if the user closed
@@ -163,16 +164,32 @@ where
 /// in its own state — that association lives entirely in the app's manager, captured by the
 /// closure the app passes in here. Mirrors how `home.rs` leaves "Create a starter config" to the
 /// app: shell-core wires the moment, the app supplies the behaviour.
-pub fn wire_return<R, F>(window: &tauri::WebviewWindow<R>, on_close: F)
+///
+/// **Resolves the window by label via [`tauri::Manager::get_window`], deliberately — never
+/// `get_webview_window`.** An app that docks its content into the detached window as an *added
+/// child webview* (curator recreates a content webview; lector recreates its render webview) turns
+/// it into a *multi-webview* window, and Tauri exposes multi-webview windows only through
+/// `get_window`/`windows` — `get_webview_window`/`webview_windows` track single-webview windows
+/// only and return `None`/empty for them. Wiring the return off a `get_webview_window` lookup in
+/// the caller therefore silently no-op'd for those apps, so a popped-out tab could never redock
+/// (its origin row stayed stuck showing the pop-in affordance). `get_window` is correct for both
+/// that case and the single-webview case (warden's detached window hosts a re-parented *native*
+/// surface, not an added webview), and `Destroyed` is a window event regardless — so doing the one
+/// correct lookup here, in the shared owner, keeps every consumer from having to pick it (and from
+/// picking the wrong one). A no-op if no window carries `label` (already gone).
+pub fn wire_return<R, F>(app: &tauri::AppHandle<R>, label: &str, on_close: F)
 where
     R: tauri::Runtime,
     F: Fn() + Send + 'static,
 {
-    window.on_window_event(move |e| {
-        if let tauri::WindowEvent::Destroyed = e {
-            on_close();
-        }
-    });
+    use tauri::Manager as _;
+    if let Some(window) = app.get_window(label) {
+        window.on_window_event(move |e| {
+            if let tauri::WindowEvent::Destroyed = e {
+                on_close();
+            }
+        });
+    }
 }
 
 #[cfg(test)]
