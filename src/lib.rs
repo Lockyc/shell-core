@@ -23,9 +23,11 @@
 //!   the label scheme + banner-shell window a detached tab gets; the app owns moving the tab's actual
 //!   content and all origin bookkeeping. [`compositing`] is the hole-punch content-webview placement
 //!   shared by curator + lector (the [`compositing::HoleRect`] rect + [`compositing::layout_webviews`]);
-//!   warden composites a native `NSView` through its own geometry, so it is not a consumer. Deliberately
-//!   NOT shared: IPC fan-out and the config watcher (diverged in structure per app), and the
-//!   chrome-caller command gate (curator-only — warden hosts no untrusted webviews).
+//!   warden composites a native `NSView` through its own geometry, so it is not a consumer.
+//!   [`watch`] is the config-file hot-reload watcher for curator + lector (parent-dir watch, file-name
+//!   match, echo-swallow via a config-agnostic seam — the app parses); warden's own watcher parses
+//!   inside + drives a deeper reconcile, so it keeps its own. Deliberately NOT shared: IPC fan-out,
+//!   and the chrome-caller command gate (curator-only — warden hosts no untrusted webviews).
 
 /// Embedded source of `scripts/release.sh` — the generic build+notarize+upload release script.
 /// A consumer's `build.rs` writes this into its own `scripts/release.sh` (git-ignored).
@@ -73,6 +75,9 @@ pub mod detach;
 
 #[cfg(feature = "runtime")]
 pub mod compositing;
+
+#[cfg(feature = "runtime")]
+pub mod watch;
 
 /// Emit a build stamp so the About box can confirm the installed app matches a given commit. Prints
 /// `cargo:rustc-env=BUILD_GIT_SHA=<short>[-dirty]` and `cargo:rustc-env=BUILD_DATE=<YYYY-MM-DD>`,
