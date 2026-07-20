@@ -55,6 +55,13 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   watcher: it parses inside + drives a slow root-scan/main-thread reconcile and relies on
   `format_file`'s diff-guard, a genuinely different contract (and the file-name-match reference this
   was modelled on).
+- **`MOUSE_NAV_JS`** (a bare `&str` const — no `runtime` feature) — a self-contained content-webview
+  init script mapping the mouse side-buttons (button 3 → `history.back()`, button 4 →
+  `history.forward()`), which WKWebView delivers as DOM mouse events but never acts on. curator and
+  lector inject it into every content webview (curator appends it to its shim bundle; it is lector's
+  sole content-injection); warden — native terminal surfaces, no page history — doesn't consume it.
+  It carries no per-webview key, which is exactly why it single-sources cleanly, unlike curator's
+  security-gated escape/notification/badge shims. Edit the JS at `src/inject/mouse-nav.js`.
 - **The menu spine** (`menu::build_spine`, `runtime` feature) — the App submenu (About +
   Check for Updates…), the Config submenu (Edit Config / Reveal in Finder), and the Window submenu
   (minimize/maximize/fullscreen, Close Window, and a checked per-window selector). Returns the
