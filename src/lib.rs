@@ -39,14 +39,6 @@ pub const GEN_LATEST_SH: &str = include_str!("../scripts/gen-latest-json.sh");
 /// Embedded source of `scripts/install-app.sh` — the /Applications installer for local builds.
 pub const INSTALL_APP_SH: &str = include_str!("../scripts/install-app.sh");
 
-/// Injected into content webviews by curator/lector to make the mouse side-buttons drive
-/// back/forward navigation (button 3 → `history.back()`, button 4 → `history.forward()`).
-/// WKWebView delivers the side buttons as DOM mouse events but never acts on them. Self-contained
-/// (no per-webview key), so both apps share this one copy. warden (native terminal surfaces,
-/// no page history) does not consume it. Available without the `runtime` feature — it is a bare
-/// `&str`, injected via `WebviewBuilder::initialization_script`.
-pub const MOUSE_NAV_JS: &str = include_str!("inject/mouse-nav.js");
-
 /// Materialize the three embedded release scripts into `<dir>` (each git-ignored in the consumer),
 /// preserving the executable bit. Call from `build.rs` with the app's `scripts/` dir so a plain
 /// clone can build + release from the pinned shell-core rev without a tracked copy to drift.
@@ -69,31 +61,6 @@ pub fn materialize_scripts(dir: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::MOUSE_NAV_JS;
-
-    #[test]
-    fn mouse_nav_js_drives_history_navigation() {
-        assert!(
-            MOUSE_NAV_JS.contains("history.back()"),
-            "back handler missing"
-        );
-        assert!(
-            MOUSE_NAV_JS.contains("history.forward()"),
-            "forward handler missing"
-        );
-        assert!(
-            MOUSE_NAV_JS.contains("e.button === 3"),
-            "button-3 guard missing"
-        );
-        assert!(
-            MOUSE_NAV_JS.contains("e.button === 4"),
-            "button-4 guard missing"
-        );
-    }
-}
-
 /// Shared tab-selection policy (`pick_live_neighbour`). Zero-dependency, so it stays on the
 /// default (non-`runtime`) surface — every consumer, build-dep or runtime dep, can call it.
 pub mod tabs;
@@ -113,6 +80,9 @@ pub mod compositing;
 
 #[cfg(feature = "runtime")]
 pub mod watch;
+
+#[cfg(feature = "runtime")]
+pub mod mouse_nav;
 
 /// Emit a build stamp so the About box can confirm the installed app matches a given commit. Prints
 /// `cargo:rustc-env=BUILD_GIT_SHA=<short>[-dirty]` and `cargo:rustc-env=BUILD_DATE=<YYYY-MM-DD>`,

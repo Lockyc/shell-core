@@ -55,13 +55,21 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   watcher: it parses inside + drives a slow root-scan/main-thread reconcile and relies on
   `format_file`'s diff-guard, a genuinely different contract (and the file-name-match reference this
   was modelled on).
-- **`MOUSE_NAV_JS`** (a bare `&str` const — no `runtime` feature) — a self-contained content-webview
-  init script mapping the mouse side-buttons (button 3 → `history.back()`, button 4 →
-  `history.forward()`), which WKWebView delivers as DOM mouse events but never acts on. curator and
-  lector inject it into every content webview (curator appends it to its shim bundle; it is lector's
-  sole content-injection); warden — native terminal surfaces, no page history — doesn't consume it.
-  It carries no per-webview key, which is exactly why it single-sources cleanly, unlike curator's
-  security-gated escape/notification/badge shims. Edit the JS at `src/inject/mouse-nav.js`.
+- **`mouse_nav::install`** (`runtime` feature, macOS) — native mouse side-button (back/forward)
+  navigation for content webviews, shared by curator + lector (warden hosts native terminals with no
+  page history, doesn't use it). A local `NSEvent` monitor decodes both delivery paths — a plain
+  mouse's `otherMouseDown` buttons 3/4, **and** a driver's `systemDefined` subtype-7
+  `NX_SUBTYPE_AUX_MOUSE_BUTTONS` events (`data1` = changed-button mask, `data2` = currently-down
+  mask; bit 3 = back, bit 4 = forward) — and drives the focused tab's WKWebView history natively
+  (`goBack`/`goForward`). The core owns the monitor + decode + native call; the **app** supplies a
+  `Fn() -> Option<Webview>` resolver returning its focused window's active content tab (the one piece
+  that differs per app). **Footgun:** WKWebView never forwards the side buttons to the DOM, so a
+  page-level JS `mouseup` handler can't see them — the reason the earlier injected-JS approach was
+  dead code and was removed; don't reintroduce it. Two more silent traps the monitor encodes: keep
+  the value `addLocalMonitorForEventsMatchingMask:handler:` returns alive (dropping the `Retained`
+  tears the monitor down instantly), and act only on the *press* transition so each press navigates
+  once. Deps (`objc2`/`objc2-app-kit`/`block2`) are optional + macOS-target, pulled only by
+  `runtime`, so the zero-tauri build-dep never compiles them.
 - **The menu spine** (`menu::build_spine`, `runtime` feature) — the App submenu (About +
   Check for Updates…), the Config submenu (Edit Config / Reveal in Finder), and the Window submenu
   (minimize/maximize/fullscreen, Close Window, and a checked per-window selector). Returns the
