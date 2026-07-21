@@ -70,17 +70,6 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   tears the monitor down instantly), and act only on the *press* transition so each press navigates
   once. Deps (`objc2`/`objc2-app-kit`/`block2`) are optional + macOS-target, pulled only by
   `runtime`, so the zero-tauri build-dep never compiles them.
-- **`progress_bar::install`** (`runtime` feature, macOS) — a thin determinate loading bar pinned to
-  the top of each content webview, shared by curator + lector (warden: no WKWebView, doesn't use it).
-  A plain `NSView` added as a subview of the content WKWebView (so it inherits the webview's
-  show/hide/raise/resize), its fill width driven from the host webview's `estimatedProgress` by a
-  view-owned ~30 Hz `NSTimer`; hides at 100% / not-loading, re-shows on the next navigation. **Footgun
-  — poll, not KVO:** `addObserver:forKeyPath:` on the WKWebView crashes if it deallocates (tab
-  unload/recreate) while still observed, and wry gives no clean webview-close hook to remove it first;
-  the timer self-cleans (its block holds the bar; the bar's `superview` link clears when the webview
-  dies; the next tick invalidates the timer, releasing block → bar → timer). Accent is passed as raw
-  `(r,g,b,a)` f64 so this core needs no config-core dep (three-cores rule) — the app converts from its
-  `Colour`. `install(webview, accent)` is called once per content webview at creation.
 - **The menu spine** (`menu::build_spine`, `runtime` feature) — the App submenu (About +
   Check for Updates…), the Config submenu (Edit Config / Reveal in Finder), and the Window submenu
   (minimize/maximize/fullscreen, Close Window, and a checked per-window selector). Returns the
