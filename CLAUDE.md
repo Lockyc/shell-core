@@ -40,8 +40,8 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   - **Footgun that survives:** the hash drives a *persistent on-disk filename*, so it must use a
     **fixed** algorithm (`fnv1a_64`), never `std::hash::DefaultHasher` — its output isn't guaranteed
     stable across Rust releases, so a toolchain bump silently changes the filename and resets every
-    window's saved bounds ("the app forgot my layout"). curator shipped that bug (fixed 2026-07-16);
-    the pinned test vectors here are what keep it fixed. Don't swap the algorithm.
+    window's saved bounds ("the app forgot my layout"). The pinned test vectors here are what keep
+    it fixed. Don't swap the algorithm.
 - **`compositing`** (`runtime` feature) — the hole-punch content-webview placement (`HoleRect`,
   `CHROME_W`, `initial_hole`, `layout_webviews`) shared byte-identically by curator + lector: the
   sidebar chrome is the window's main webview, and `add_child` content webviews are positioned to
@@ -64,8 +64,8 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   (`goBack`/`goForward`). The core owns the monitor + decode + native call; the **app** supplies a
   `Fn() -> Option<Webview>` resolver returning its focused window's active content tab (the one piece
   that differs per app). **Footgun:** WKWebView never forwards the side buttons to the DOM, so a
-  page-level JS `mouseup` handler can't see them — the reason the earlier injected-JS approach was
-  dead code and was removed; don't reintroduce it. Two more silent traps the monitor encodes: keep
+  page-level JS `mouseup` handler can't see them — native monitoring is the only path that works, so
+  don't reintroduce an injected-JS approach. Two more silent traps the monitor encodes: keep
   the value `addLocalMonitorForEventsMatchingMask:handler:` returns alive (dropping the `Retained`
   tears the monitor down instantly), and act only on the *press* transition so each press navigates
   once. Deps (`objc2`/`objc2-app-kit`/`block2`) are optional + macOS-target, pulled only by
@@ -85,24 +85,17 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   Check for Updates…), the Config submenu (Edit Config / Reveal in Finder), and the Window submenu
   (minimize/maximize/fullscreen, Close Window, and a checked per-window selector). Returns the
   submenus for the app to place among its own; it does not set the menu.
-  - **This revises an earlier decision, and half of it stands.** The old line ruled menus out
-    entirely: *"warden's terminal tab semantics vs curator's webview Edit/clipboard menu are
-    genuinely different menus, not one menu with parameters."* That is **still true of the items** —
-    curator's Reload Tab / Reset All / DevTools and warden's tab semantics stay per-app and are not
-    parameterisable. It was drawn too coarsely: it swept the *spine* out with them, and the spine is
-    identical for any app regardless of what it hosts. Two consumers could not expose the
-    distinction; a third did — lector had no menu at all, and the Config submenu turned out to be
-    byte-identical in both apps modulo the config path. **Spine in, items out.**
+  - **Spine in, items out.** The spine — App/Config/Window submenus — is identical for any app
+    regardless of what it hosts, so it lives here once. The *items* stay per-app: curator's Reload
+    Tab / Reset All / DevTools and warden's tab semantics are genuinely different menus, not one menu
+    with parameters, and are not parameterisable. The Config submenu is byte-identical across apps
+    modulo the config path, so it's part of the shared spine.
   - Parameterised only where the apps genuinely differ: the app name, the config path, and the
-    window list. The Window items take warden's checked/`(closed)` shape — it shows state; curator's
-    plain items didn't.
+    window list. The Window items take the checked/`(closed)` shape that shows per-window state.
   - **The close accelerators are constants here, not parameters: ⌘W closes a tab, ⌘⇧W the window.**
-    That is the family standard, and this is the one place it lives. An earlier draft made the
-    close-window accelerator a parameter to accommodate curator's ⌘W-closes-the-window — which would
-    have encoded a bug as a requirement. Every app has an `unload_tab` meaning the same thing
-    (unload the active tab to cold; it respawns on next select), so nothing app-specific remains.
-    curator's ⌘W had drifted precisely because each app kept its own copy of the convention; one
-    place is what stops it drifting again. `Spine::close_tab` is returned as a bare item because
+    That is the family standard, and this is the one place it lives — one home is what keeps it from
+    drifting. Every app has an `unload_tab` meaning the same thing (unload the active tab to cold; it
+    respawns on next select), so nothing app-specific remains. `Spine::close_tab` is returned as a bare item because
     every app's tab submenu differs (warden's Jump/Cycle digit modes, curator's Reload/Reset/DevTools,
     lector's empty one) — the item is shared, its placement is the app's.
   - **Check for Updates… is a menu item here, not update logic.** chrome-core owns self-update (its
@@ -113,10 +106,6 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   states: no config (offer to write one), a load error (show it), or a valid config's window list
   (warden's launcher, generalised). `home_state` is a pure function of those inputs and is tested
   as one.
-  - It replaces **curator's error window** and **warden's launcher** — two half-implementations of
-    one idea. curator's stated an error and offered no action; warden's offered windows and could
-    not express an error. Neither could do the other's job, and lector had neither, so a fresh
-    install launched to nothing at all.
   - **shell-core owns the surface; the app wires the actions.** "Create a starter config" is the
     app's command calling `config_core::write_default_config` with its own template. shell-core
     must **never** depend on config-core: the three cores are a flat fan-out, and a core→core edge
@@ -171,13 +160,12 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     `get_webview_window` lookup returns `None`, silently skipping the wiring so the tab could never
     redock (its origin row stayed stuck on the pop-in affordance). `get_window` is correct for that
     case and for warden's single-webview native-surface window alike.
-  - **Dividing line: shell-core owns the WHEN, the app owns the WHAT.** The window shell, the label
-    convention, and the close trigger live here; moving the tab's actual content (warden
-    re-parents a native surface, curator/lector recreate a webview) and *all* origin bookkeeping —
-    which window/tab a detached window came from, reopening/redocking on return, rebuilding the
-    menu — lives entirely in the app's `birth_content`/`on_close` closures. shell-core stores no
-    origin state of its own. Same shape as `home`: shell-core owns the surface, the app wires the
-    actions.
+  - **Dividing line — the same split as `home`: shell-core owns the surface, the app wires the
+    actions.** Here that means the window shell, the label convention, and the close trigger live
+    here; moving the tab's actual content (warden re-parents a native surface, curator/lector
+    recreate a webview) and *all* origin bookkeeping — which window/tab a detached window came from,
+    reopening/redocking on return, rebuilding the menu — lives entirely in the app's
+    `birth_content`/`on_close` closures. shell-core stores no origin state of its own.
   - **The menu spine's Pop Out Tab item** (`menu::ids::POP_OUT_TAB`, `⌘⇧O` /
     `menu::ACCEL_POP_OUT_TAB`) is built alongside Close Tab in `build_spine` and returned
     (`Spine::pop_out_tab`) for the app to place in its own tab submenu, for the identical reason
@@ -213,12 +201,11 @@ vendored source.**
   is a **second *local* surface** (a home/detach page, or any Builder-registered custom protocol,
   all `Origin::Local`) that hosts *untrusted* content — origin dispatch is local-vs-remote and won't
   screen one local surface from another.
-- **The wrong premise this replaces:** "the gate is curator-only because only curator hosts untrusted
-  webviews." **False both ways** — lector hosts remote `127.0.0.1` content too (same threat shape),
-  and origin dispatch, not the gate, is what isolates it. shell-core's own home + detach surfaces are
-  exactly the second-*local*-surface case, but they serve **fixed, shell-core-bundled** HTML (no
-  untrusted content), so they need no gate. A future third local surface hosting anything
-  user-supplied would need an explicit gate.
+- **The gate is not curator-specific.** lector hosts remote `127.0.0.1` content too (same threat
+  shape as curator), and origin dispatch — not any label gate — is what isolates it. shell-core's own
+  home + detach surfaces are exactly the second-*local*-surface case, but they serve **fixed,
+  shell-core-bundled** HTML (no untrusted content), so they need no gate. A future third local surface
+  hosting anything user-supplied would need an explicit gate.
 - **curator's `require_chrome` is therefore redundant belt-and-braces** (curator meets the
   precondition exactly: tauri 2.11.5, and its capability grants only `core:*`/`updater`/`process` —
   zero app-command permissions). It can stay as defense-in-depth or be narrowed to a
@@ -227,8 +214,8 @@ vendored source.**
 - **This bypass does NOT extend to core *plugin* commands** (`core:event`, `core:window`, updater,
   process) — those are gated by their own default-denied permission set regardless of the app
   manifest, so each app still ships a `capabilities/*.json` granting the sidebar exactly the plugin
-  permissions it uses. (Footgun: before that file existed, `event.listen`/window-drag silently
-  no-op'd — the rejection comes from the plugin's ACL, not the crate-command dispatch path above.)
+  permissions it uses. (Footgun: a missing grant makes `event.listen`/window-drag silently no-op —
+  the rejection comes from the plugin's ACL, not the crate-command dispatch path above.)
 
 ## The embed-and-materialize pattern (the tooling seam)
 
