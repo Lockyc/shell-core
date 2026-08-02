@@ -447,4 +447,28 @@ mod tests {
         assert_eq!(ACCEL_TAB_PREV, "Shift+Cmd+BracketLeft");
         assert_eq!(ACCEL_TAB_NEXT, "Shift+Cmd+BracketRight");
     }
+
+    #[test]
+    fn nav_and_jump_accelerators_never_collide() {
+        // jump_mode_gives_every_digit_a_tab_position and cycle_mode_takes_digits_1_and_2_from_the_jumps
+        // each pin one block; this pins the combined set both blocks actually produce, so two menu
+        // items can never claim the same chord.
+        for cycle in [false, true] {
+            let nav = nav_spec(cycle);
+            let jumps = jump_spec(cycle);
+            let accels: Vec<&str> = nav
+                .iter()
+                .chain(jumps.iter())
+                .map(|s| s.accel.as_str())
+                .collect();
+            let mut deduped = accels.clone();
+            deduped.sort_unstable();
+            deduped.dedup();
+            assert_eq!(
+                deduped.len(),
+                accels.len(),
+                "duplicate accelerator across nav_spec/jump_spec in cycle={cycle} mode: {accels:?}"
+            );
+        }
+    }
 }

@@ -96,17 +96,18 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   submenus for the app to place among its own; it does not set the menu.
   - **Spine in, items out.** The spine — App/Config/Window submenus — is identical for any app
     regardless of what it hosts, so it lives here once. The *items* stay per-app: curator's Reload
-    Tab / Reset All / DevTools and warden's tab semantics are genuinely different menus, not one menu
-    with parameters, and are not parameterisable. The Config submenu is byte-identical across apps
-    modulo the config path, so it's part of the shared spine.
+    Tab / Reset All / DevTools and warden's Reopen Last Closed are genuinely different menus, not
+    one menu with parameters, and are not parameterisable. (The tab-nav block below is the
+    exception — it *is* parameterised, by `cycle_digits`.) The Config submenu is byte-identical
+    across apps modulo the config path, so it's part of the shared spine.
   - Parameterised only where the apps genuinely differ: the app name, the config path, and the
     window list. The Window items take the checked/`(closed)` shape that shows per-window state.
   - **The close accelerators are constants here, not parameters: ⌘W closes a tab, ⌘⇧W the window.**
     That is the family standard, and this is the one place it lives — one home is what keeps it from
     drifting. Every app has an `unload_tab` meaning the same thing (unload the active tab to cold; it
     respawns on next select), so nothing app-specific remains. `Spine::close_tab` is returned as a bare item because
-    every app's tab submenu differs (warden's Jump/Cycle digit modes, curator's Reload/Reset/DevTools,
-    lector's empty one) — the item is shared, its placement is the app's.
+    every app's tab submenu differs (curator's Reload/Reset/DevTools, warden's Reopen Last Closed
+    spliced into the Window submenu) — the item is shared, its placement is the app's.
   - **Check for Updates… is a menu item here, not update logic.** chrome-core owns self-update (its
     dividing-line exemplar); the app forwards the event to `checkForUpdateNow()`. `handle_spine_event`
     handles only the two config ids, which act on a file and need no window.
@@ -117,7 +118,12 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     a Tauri app; `build_tab_nav` only maps that data through `MenuItemBuilder`). What stays per app
     is the **submenu composition** these two blocks are placed into — curator's also carries
     Reload Tab / Reset All / DevTools, lector's is bare, warden splices Reopen Last Closed into the
-    Window submenu — that is required divergence, not drift, so it is not pulled in here.
+    Window submenu — that is required divergence, not drift, so it is not pulled in here. The
+    `selectByOffset` cycle *predicate* each chrome uses for ⌘⇧[/⌘⇧] is the same kind of per-app
+    divergence and stays out of this block too: warden skips cold tabs (`liveOnly: true`) because
+    spawning a PTY isn't free, curator and lector cycle through cold tabs too (`liveOnly: false`)
+    because a cold tab just loads on select. The *items* are shared; the cycle *predicate* is the
+    app's call.
     `build_tab_nav` takes a plain `cycle_digits: bool`, **never** config-core's `TabDigitKeys`:
     shell-core must not depend on config-core (the cores stay mutually independent so each is
     independently patchable), so the consuming app bridges with
