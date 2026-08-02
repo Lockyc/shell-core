@@ -119,11 +119,13 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     is the **submenu composition** these two blocks are placed into — curator's also carries
     Reload Tab / Reset All / DevTools, lector's is bare, warden splices Reopen Last Closed into the
     Window submenu — that is required divergence, not drift, so it is not pulled in here. The
-    `selectByOffset` cycle *predicate* each chrome uses for ⌘⇧[/⌘⇧] is the same kind of per-app
-    divergence and stays out of this block too: warden skips cold tabs (`liveOnly: true`) because
-    spawning a PTY isn't free, curator and lector cycle through cold tabs too (`liveOnly: false`)
-    because a cold tab just loads on select. The *items* are shared; the cycle *predicate* is the
-    app's call.
+    `selectByOffset` cycle *predicate* each chrome uses stays out of this block too — the *items*
+    are shared, the *predicate* is the app's call. warden and curator both skip cold tabs
+    (`liveOnly: true`): cycling is for moving between the tabs you already have open, so it must
+    never be what loads one — holding the chord through a mostly-cold window would otherwise spawn
+    a PTY (warden) or a webview (curator) per step. lector still cycles every tab
+    (`liveOnly: false`). Jumps are unfiltered everywhere: naming a position is an explicit request
+    to load.
     `build_tab_nav` takes a plain `cycle_digits: bool`, **never** config-core's `TabDigitKeys`:
     shell-core must not depend on config-core (the cores stay mutually independent so each is
     independently patchable), so the consuming app bridges with
