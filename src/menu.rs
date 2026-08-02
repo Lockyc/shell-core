@@ -16,6 +16,13 @@ pub mod ids {
     pub const POP_OUT_TAB: &str = "shell:pop_out_tab";
     pub const CLOSE_WINDOW: &str = "shell:close_window";
     pub const OPEN_WINDOW_PREFIX: &str = "shell:open_window:";
+    pub const TAB_PREV: &str = "shell:tab_prev";
+    pub const TAB_NEXT: &str = "shell:tab_next";
+    /// ⌘1 / ⌘2 aliases for Next / Previous Tab, built only in cycle mode.
+    pub const TAB_NEXT_DIGIT: &str = "shell:tab_next_digit";
+    pub const TAB_PREV_DIGIT: &str = "shell:tab_prev_digit";
+    /// Jump-to-position items: `shell:tab_jump:<1-based position>`.
+    pub const TAB_JUMP_PREFIX: &str = "shell:tab_jump:";
 }
 
 /// The family's close accelerators.
@@ -34,6 +41,12 @@ pub const ACCEL_CLOSE_WINDOW: &str = "Shift+Cmd+KeyW";
 /// wins over any colliding terminal keybind (curator and lector embed no terminal, so the question
 /// doesn't arise for them).
 pub const ACCEL_POP_OUT_TAB: &str = "Shift+Cmd+KeyO";
+
+/// The family's tab-cycling accelerators — ⌘⇧[ / ⌘⇧] , the browser convention. Constants for the
+/// same reason as the close accelerators: one convention, one place, no per-app copy to drift
+/// (warden and curator had already drifted to different spellings of the same chord).
+pub const ACCEL_TAB_PREV: &str = "Shift+Cmd+BracketLeft";
+pub const ACCEL_TAB_NEXT: &str = "Shift+Cmd+BracketRight";
 
 /// One configured window, for the Window submenu's selector and the home surface's list.
 #[derive(Debug, Clone)]
@@ -91,6 +104,123 @@ pub fn handle_spine_event(id: &str, config_path: &Path) -> bool {
             true
         }
         _ => false,
+    }
+}
+
+/// One tab-nav menu item, resolved from the digit mode. Kept as *data* so the mode's entire
+/// effect — which ids exist, which chord each claims — is unit-testable without a Tauri app.
+struct ItemSpec {
+    id: String,
+    label: String,
+    accel: String,
+}
+
+/// Previous/Next Tab, plus the ⌘1/⌘2 aliases in cycle mode. A menu item carries exactly one
+/// accelerator, which is why cycle mode needs distinct alias items firing the same action rather
+/// than a second chord on the ⌘⇧[ / ⌘⇧] items.
+fn nav_spec(cycle_digits: bool) -> Vec<ItemSpec> {
+    let mut v = vec![
+        ItemSpec {
+            id: ids::TAB_PREV.to_string(),
+            label: "Previous Tab".to_string(),
+            accel: ACCEL_TAB_PREV.to_string(),
+        },
+        ItemSpec {
+            id: ids::TAB_NEXT.to_string(),
+            label: "Next Tab".to_string(),
+            accel: ACCEL_TAB_NEXT.to_string(),
+        },
+    ];
+    if cycle_digits {
+        v.push(ItemSpec {
+            id: ids::TAB_NEXT_DIGIT.to_string(),
+            label: "Next Tab (⌘1)".to_string(),
+            accel: "Cmd+Digit1".to_string(),
+        });
+        v.push(ItemSpec {
+            id: ids::TAB_PREV_DIGIT.to_string(),
+            label: "Previous Tab (⌘2)".to_string(),
+            accel: "Cmd+Digit2".to_string(),
+        });
+    }
+    v
+}
+
+/// Jump-to-position items. ⌘1–⌘9 normally; ⌘3–⌘9 when the cycle aliases took 1 and 2 (positions
+/// 1–2 then have no direct chord — that is the trade the mode makes).
+fn jump_spec(cycle_digits: bool) -> Vec<ItemSpec> {
+    let first = if cycle_digits { 3 } else { 1 };
+    (first..=9)
+        .map(|n| ItemSpec {
+            id: format!("{}{n}", ids::TAB_JUMP_PREFIX),
+            label: format!("Tab {n}"),
+            accel: format!("Cmd+Digit{n}"),
+        })
+        .collect()
+}
+
+/// The tab-navigation items, in the two blocks an app places in its own tab submenu.
+///
+/// Two blocks rather than a built submenu because each app's tab submenu genuinely differs —
+/// curator's also carries Reload Tab / Reset All Tabs / Open Developer Tools, lector's carries
+/// neither, warden splices Reopen Last Closed into the Window submenu. Ordering *within* a block
+/// is fixed here; composition stays the app's.
+pub struct TabNav<R: tauri::Runtime> {
+    /// Previous Tab, Next Tab — plus the ⌘1/⌘2 aliases when `cycle_digits`.
+    pub nav: Vec<MenuItem<R>>,
+    /// Jump-to-position: ⌘1–⌘9, or ⌘3–⌘9 when the aliases took 1 and 2.
+    pub jumps: Vec<MenuItem<R>>,
+}
+
+/// Build the tab-navigation items for the given digit mode.
+///
+/// `cycle_digits` is a plain bool, NOT config-core's `TabDigitKeys`: shell-core must never depend
+/// on config-core (the cores stay mutually independent, so each is independently patchable), so
+/// the consuming app bridges with `cfg.tab_digit_keys.is_cycle()`.
+pub fn build_tab_nav<R: tauri::Runtime, M: tauri::Manager<R>>(
+    manager: &M,
+    cycle_digits: bool,
+) -> tauri::Result<TabNav<R>> {
+    fn build<R: tauri::Runtime, M: tauri::Manager<R>>(
+        manager: &M,
+        specs: Vec<ItemSpec>,
+    ) -> tauri::Result<Vec<MenuItem<R>>> {
+        specs
+            .into_iter()
+            .map(|s| {
+                MenuItemBuilder::with_id(s.id, s.label)
+                    .accelerator(s.accel)
+                    .build(manager)
+            })
+            .collect()
+    }
+    Ok(TabNav {
+        nav: build(manager, nav_spec(cycle_digits))?,
+        jumps: build(manager, jump_spec(cycle_digits))?,
+    })
+}
+
+/// What a tab-nav menu id means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TabNavAction {
+    Next,
+    Prev,
+    /// Jump to this 1-based tab position.
+    Jump(usize),
+}
+
+/// Route a menu id to its tab-nav action, or `None` for any other id.
+///
+/// Both ⌘1/⌘2 alias ids collapse onto `Next`/`Prev`, so an app's menu handler never learns the
+/// digit mode exists — the mode is entirely `build_tab_nav`'s business.
+pub fn tab_nav_action(id: &str) -> Option<TabNavAction> {
+    match id {
+        ids::TAB_NEXT | ids::TAB_NEXT_DIGIT => Some(TabNavAction::Next),
+        ids::TAB_PREV | ids::TAB_PREV_DIGIT => Some(TabNavAction::Prev),
+        _ => id
+            .strip_prefix(ids::TAB_JUMP_PREFIX)
+            .and_then(|n| n.parse::<usize>().ok())
+            .map(TabNavAction::Jump),
     }
 }
 
@@ -246,5 +376,75 @@ mod tests {
     #[test]
     fn pop_out_accelerator_is_the_family_standard() {
         assert_eq!(ACCEL_POP_OUT_TAB, "Shift+Cmd+KeyO");
+    }
+
+    #[test]
+    fn jump_mode_gives_every_digit_a_tab_position() {
+        let nav = nav_spec(false);
+        assert_eq!(nav.len(), 2);
+        assert_eq!(nav[0].id, ids::TAB_PREV);
+        assert_eq!(nav[0].accel, "Shift+Cmd+BracketLeft");
+        assert_eq!(nav[1].id, ids::TAB_NEXT);
+        assert_eq!(nav[1].accel, "Shift+Cmd+BracketRight");
+        let jumps = jump_spec(false);
+        assert_eq!(jumps.len(), 9);
+        assert_eq!(jumps[0].id, "shell:tab_jump:1");
+        assert_eq!(jumps[0].label, "Tab 1");
+        assert_eq!(jumps[0].accel, "Cmd+Digit1");
+        assert_eq!(jumps[8].accel, "Cmd+Digit9");
+    }
+
+    #[test]
+    fn cycle_mode_takes_digits_1_and_2_from_the_jumps() {
+        // A menu item carries exactly ONE accelerator, so cycle mode needs distinct alias items
+        // rather than a second chord on Previous/Next Tab.
+        let nav = nav_spec(true);
+        assert_eq!(nav.len(), 4);
+        assert_eq!(nav[2].id, ids::TAB_NEXT_DIGIT);
+        assert_eq!(nav[2].accel, "Cmd+Digit1");
+        assert_eq!(nav[3].id, ids::TAB_PREV_DIGIT);
+        assert_eq!(nav[3].accel, "Cmd+Digit2");
+        let jumps = jump_spec(true);
+        assert_eq!(jumps.len(), 7);
+        assert_eq!(jumps[0].label, "Tab 3");
+        assert_eq!(jumps[0].accel, "Cmd+Digit3");
+        // No jump may claim a chord the aliases took — that would be a duplicate accelerator.
+        assert!(jumps
+            .iter()
+            .all(|j| j.accel != "Cmd+Digit1" && j.accel != "Cmd+Digit2"));
+    }
+
+    #[test]
+    fn tab_nav_action_routes_every_built_id_and_hides_the_mode() {
+        // Whatever the mode builds must route; an app's handler never learns the mode exists.
+        for cycle in [false, true] {
+            for s in nav_spec(cycle).iter().chain(jump_spec(cycle).iter()) {
+                assert!(tab_nav_action(&s.id).is_some(), "unrouted id {}", s.id);
+            }
+        }
+        assert_eq!(
+            tab_nav_action(ids::TAB_NEXT_DIGIT),
+            Some(TabNavAction::Next)
+        );
+        assert_eq!(
+            tab_nav_action(ids::TAB_PREV_DIGIT),
+            Some(TabNavAction::Prev)
+        );
+        assert_eq!(tab_nav_action(ids::TAB_NEXT), Some(TabNavAction::Next));
+        assert_eq!(tab_nav_action(ids::TAB_PREV), Some(TabNavAction::Prev));
+        assert_eq!(
+            tab_nav_action("shell:tab_jump:7"),
+            Some(TabNavAction::Jump(7))
+        );
+        // Foreign ids are left for the app / the rest of the spine.
+        assert!(tab_nav_action(ids::CLOSE_TAB).is_none());
+        assert!(tab_nav_action("shell:tab_jump:x").is_none());
+        assert!(tab_nav_action("app:whatever").is_none());
+    }
+
+    #[test]
+    fn the_tab_nav_accelerators_are_the_family_standard() {
+        assert_eq!(ACCEL_TAB_PREV, "Shift+Cmd+BracketLeft");
+        assert_eq!(ACCEL_TAB_NEXT, "Shift+Cmd+BracketRight");
     }
 }

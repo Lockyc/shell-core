@@ -110,6 +110,18 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   - **Check for Updates… is a menu item here, not update logic.** chrome-core owns self-update (its
     dividing-line exemplar); the app forwards the event to `checkForUpdateNow()`. `handle_spine_event`
     handles only the two config ids, which act on a file and need no window.
+  - **The tab-nav block** (`menu::build_tab_nav`, `TabNav`, `TabNavAction`, `tab_nav_action`) —
+    Previous/Next Tab (`⌘⇧[`/`⌘⇧]`), the `⌘1`–`⌘9` jump-to-position items, and the `⌘1`/`⌘2` cycle
+    aliases — is shared too, not per-app: one implementation of the digit mode, with every id and
+    accelerator pinned by test (`nav_spec`/`jump_spec` are plain-data functions, unit-tested without
+    a Tauri app; `build_tab_nav` only maps that data through `MenuItemBuilder`). What stays per app
+    is the **submenu composition** these two blocks are placed into — curator's also carries
+    Reload Tab / Reset All / DevTools, lector's is bare, warden splices Reopen Last Closed into the
+    Window submenu — that is required divergence, not drift, so it is not pulled in here.
+    `build_tab_nav` takes a plain `cycle_digits: bool`, **never** config-core's `TabDigitKeys`:
+    shell-core must not depend on config-core (the cores stay mutually independent so each is
+    independently patchable), so the consuming app bridges with
+    `cfg.tab_digit_keys.is_cycle()` before calling in.
 - **The home surface** (`home::{home_state, show_home, close_home}`, `runtime` feature) — what an
   app shows when it would otherwise have no window, so it is **never stranded invisible**. Three
   states: no config (offer to write one), a load error (show it), or a valid config's window list
