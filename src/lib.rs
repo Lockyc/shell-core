@@ -93,8 +93,7 @@ pub mod mouse_nav;
 pub mod progress_bar;
 
 /// Per-window geometry persistence — size/position in AppKit points, clamped to the target
-/// monitor on restore. Replaces `tauri-plugin-window-state`, whose physical-pixel model breaks
-/// across monitors of differing scale factor. Wired by [`register_plugins`].
+/// monitor on restore. Wired by [`register_plugins`].
 #[cfg(feature = "runtime")]
 pub mod geometry;
 
