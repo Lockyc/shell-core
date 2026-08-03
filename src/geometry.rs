@@ -214,6 +214,28 @@ fn snapshot<R: Runtime>(window: &Window<R>) -> Option<Rect> {
     })
 }
 
+/// Choose the size to restore a saved rect at, given the work area (if any) it will land on.
+/// Both `restore` branches route through here — the branch that found an overlapping monitor and
+/// the branch that fell back to the primary one — so the floor/clamp precedence can't diverge
+/// between them the way it did before this was factored out.
+///
+/// - With a work area, clamp to it: `clamp_to_work_area` already applies the `MIN_DIM` floor
+///   *before* the work-area cap, so the headline guarantee (never larger than the work area) holds
+///   even on a screen narrower than `MIN_DIM`. Applying `.max(MIN_DIM)` again afterwards would
+///   undo that ordering and could grow the result back past the work area.
+/// - With no work area at all (no monitor could be resolved), there's nothing to clamp against, so
+///   only the `MIN_DIM` floor applies and the stored size is otherwise trusted as-is.
+fn fit_restored_size(saved: Rect, work: Option<Rect>) -> Rect {
+    match work {
+        Some(work) => clamp_to_work_area(saved, work),
+        None => Rect {
+            width: saved.width.max(MIN_DIM),
+            height: saved.height.max(MIN_DIM),
+            ..saved
+        },
+    }
+}
+
 /// Apply a saved rect, clamped to whichever monitor it most overlaps.
 ///
 /// `LogicalSize`/`LogicalPosition` pass through tao unscaled (`dpi`'s
@@ -228,27 +250,23 @@ fn restore<R: Runtime>(window: &Window<R>, saved: Rect) {
 
     match pick_monitor(saved, &work_areas) {
         Some(i) => {
-            let fitted = clamp_to_work_area(saved, work_areas[i]);
+            let fitted = fit_restored_size(saved, Some(work_areas[i]));
             let _ = window.set_size(LogicalSize::new(fitted.width, fitted.height));
             let _ = window.set_position(LogicalPosition::new(fitted.x, fitted.y));
         }
         None => {
             // The display this window was saved on is gone. Keep the size — still clamped, against
             // the primary monitor, so a stale rect can't outgrow the screen — and drop the
-            // position so macOS places the window somewhere reachable.
+            // position so macOS places the window somewhere reachable. If even the primary monitor
+            // can't be resolved, there is nothing to clamp against and the stored size is applied
+            // verbatim (floored at MIN_DIM) rather than left unbounded.
             let primary = window
                 .primary_monitor()
                 .ok()
                 .flatten()
                 .map(|m| work_area_points(&m));
-            let fitted = match primary {
-                Some(work) => clamp_to_work_area(saved, work),
-                None => saved,
-            };
-            let _ = window.set_size(LogicalSize::new(
-                fitted.width.max(MIN_DIM),
-                fitted.height.max(MIN_DIM),
-            ));
+            let fitted = fit_restored_size(saved, primary);
+            let _ = window.set_size(LogicalSize::new(fitted.width, fitted.height));
         }
     }
 }
@@ -256,25 +274,37 @@ fn restore<R: Runtime>(window: &Window<R>, saved: Rect) {
 /// Re-snapshot every live window into the cache and write it out.
 fn flush<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<GeometryState>();
-    {
-        let mut cache = state.cache.lock().unwrap();
-        for (label, window) in app.windows() {
-            if is_excluded(&state, &label) {
-                continue;
-            }
-            if let Some(rect) = snapshot(&window) {
-                cache.insert(label, rect);
-            }
-        }
-    }
+
+    // Collect snapshots *before* taking the cache lock, matching the Moved/Resized handler's
+    // shape below: `snapshot` calls Tauri geometry getters that marshal to the main loop under
+    // some runtimes/backends. `RunEvent::Exit` is delivered on the main loop, so those getters
+    // run inline today and holding the lock across them wouldn't deadlock — but it's the same
+    // shape the consuming apps document as a live footgun elsewhere, and it's one refactor (a
+    // periodic save, a save-on-window-close, an async wrapper) from being reachable off-main. Stay
+    // out of that trap by construction rather than by remembering not to hit it.
+    let fresh: Vec<(String, Rect)> = app
+        .windows()
+        .into_iter()
+        .filter(|(label, _)| !is_excluded(&state, label))
+        .filter_map(|(label, window)| snapshot(&window).map(|rect| (label, rect)))
+        .collect();
+
+    let payload = {
+        let mut cache = state
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        cache.extend(fresh);
+        encode(&cache)
+    };
+
     let Ok(dir) = app.path().app_config_dir() else {
         return;
     };
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
-    let cache = state.cache.lock().unwrap();
-    let _ = std::fs::write(dir.join(&state.filename), encode(&cache));
+    let _ = std::fs::write(dir.join(&state.filename), payload);
 }
 
 /// Build the geometry plugin. `filename` comes from [`geometry_filename`]; `skip_labels` are an
@@ -305,16 +335,25 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
                 return;
             }
 
-            let saved = state.cache.lock().unwrap().get(&label).copied();
+            let saved = state
+                .cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(&label)
+                .copied();
             if let Some(rect) = saved {
                 restore(&window, rect);
             }
 
-            // Snapshot on move/resize so an abnormal exit still leaves usable bounds. No
-            // suppression around `restore` is needed: an echoed event records the geometry the
-            // window genuinely has, and every value on this path is already point-correct and
-            // clamped — unlike the physical-pixel model, there is no value here that could be
-            // wrong to write back.
+            // Snapshot on move/resize so a window's bounds survive even when the window itself is
+            // closed mid-session: by the time `flush` runs on `RunEvent::Exit`, a closed window is
+            // gone from `app.windows()`, so without this event-driven cache its bounds would be
+            // lost entirely rather than merely stale. (The cache is memory-only and the exit-time
+            // flush is the only write to disk, so this does *not* protect against an abnormal exit
+            // or crash — only against a window closing before a normal one.) No suppression around
+            // `restore` is needed: an echoed event records the geometry the window genuinely has,
+            // and every value on this path is already point-correct and clamped — unlike the
+            // physical-pixel model, there is no value here that could be wrong to write back.
             let tracked = window.clone();
             window.on_window_event(move |event| {
                 if !matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
@@ -322,7 +361,10 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
                 }
                 if let Some(rect) = snapshot(&tracked) {
                     let state = tracked.state::<GeometryState>();
-                    let mut cache = state.cache.lock().unwrap();
+                    let mut cache = state
+                        .cache
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     cache.insert(tracked.label().to_string(), rect);
                 }
             });
@@ -434,6 +476,45 @@ mod tests {
         );
     }
 
+    /// With a work area, `fit_restored_size` clamps into it exactly like `clamp_to_work_area` —
+    /// the branch that found an overlapping (or primary) monitor.
+    #[test]
+    fn fit_restored_size_clamps_when_a_work_area_is_given() {
+        let work = rect(0.0, 0.0, 3840.0, 2129.0);
+        let saved = rect(4975.0, 375.0, 3380.0, 2578.0);
+        assert_eq!(
+            fit_restored_size(saved, Some(work)),
+            clamp_to_work_area(saved, work)
+        );
+    }
+
+    /// A work area narrower than `MIN_DIM` must still bound the result — the cap always wins over
+    /// the floor, even through the extra layer of indirection this helper adds.
+    #[test]
+    fn fit_restored_size_never_exceeds_a_work_area_smaller_than_min_dim() {
+        let work = rect(0.0, 0.0, 100.0, 100.0);
+        let out = fit_restored_size(rect(0.0, 0.0, 500.0, 500.0), Some(work));
+        assert!(out.width <= work.width);
+        assert!(out.height <= work.height);
+    }
+
+    /// With no work area at all (primary monitor unresolvable), there is nothing to clamp
+    /// against: only the `MIN_DIM` floor applies, and a size already above it passes through
+    /// unclamped — this is the no-primary-monitor arm the review flagged as applying the stored
+    /// size with no bound whatsoever.
+    #[test]
+    fn fit_restored_size_only_floors_when_no_work_area() {
+        let saved = rect(10.0, 20.0, 6000.0, 5000.0);
+        let out = fit_restored_size(saved, None);
+        assert_eq!(out.width, 6000.0);
+        assert_eq!(out.height, 5000.0);
+
+        let degenerate = rect(0.0, 0.0, 0.0, 0.0);
+        let out = fit_restored_size(degenerate, None);
+        assert_eq!(out.width, MIN_DIM);
+        assert_eq!(out.height, MIN_DIM);
+    }
+
     #[test]
     fn store_round_trips() {
         let mut windows = HashMap::new();
@@ -467,5 +548,21 @@ mod tests {
         assert_eq!(fnv1a_64(b""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(fnv1a_64(b"a"), 0xaf63_dc4c_8601_ec8c);
         assert_eq!(fnv1a_64(b"foobar"), 0x8594_4171_f739_67e8);
+    }
+
+    /// The one behavioural rule `is_excluded` enforces — home, detached, and caller-skip windows
+    /// never persist bounds — is exactly the kind of thing a future refactor could silently
+    /// invert with no error, just wrong windows restored next launch.
+    #[test]
+    fn is_excluded_covers_home_detached_and_the_skip_list_but_not_an_ordinary_window() {
+        let state = GeometryState {
+            filename: "test.json".to_string(),
+            skip: ["sidebar".to_string()].into_iter().collect(),
+            cache: Mutex::new(HashMap::new()),
+        };
+        assert!(is_excluded(&state, crate::home::HOME_LABEL));
+        assert!(is_excluded(&state, "shell-detach:abc123"));
+        assert!(is_excluded(&state, "sidebar"));
+        assert!(!is_excluded(&state, "main"));
     }
 }
