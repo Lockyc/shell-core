@@ -1,17 +1,14 @@
 //! Per-window geometry persistence — size and position, in AppKit points.
 
-// This module lands the pure primitives (rect clamp, monitor pick, JSON store) ahead of their
-// caller: `register_plugins` only calls `geometry_filename` so far, and the real load/save/apply
-// wiring — the thing that actually calls `clamp_to_work_area`/`pick_monitor`/`decode`/`encode` —
-// is a follow-up change. Until then those are reachable only from this module's own tests, which
-// don't exist in a non-test build, so `-D warnings` would otherwise fail the gate on dead code
-// that has a real, imminent caller. Remove this once that caller lands.
-#![allow(dead_code)]
-
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use tauri::{
+    plugin::TauriPlugin, AppHandle, LogicalPosition, LogicalSize, Manager, Monitor, RunEvent,
+    Runtime, Window, WindowEvent,
+};
 
 /// On-disk schema version. Bump when the shape of a persisted entry changes; an unrecognised
 /// version is discarded rather than migrated, so a format change costs one reset, not a
@@ -89,8 +86,12 @@ fn encode(windows: &HashMap<String, Rect>) -> Vec<u8> {
 /// This is the safety net that makes the reported failure — a window restored bigger than its
 /// screen — impossible by construction, independent of how the stored value was produced.
 fn clamp_to_work_area(saved: Rect, work: Rect) -> Rect {
-    let width = saved.width.min(work.width).max(MIN_DIM);
-    let height = saved.height.min(work.height).max(MIN_DIM);
+    // `.max(MIN_DIM)` before `.min(work.width)` — not the reverse — so the work-area cap always
+    // wins: a work area narrower than MIN_DIM (a pathologically small screen) must still bound the
+    // result, even though that means falling below the floor. "Never larger than the work area" is
+    // the module's headline guarantee; MIN_DIM is a best-effort floor subordinate to it.
+    let width = saved.width.max(MIN_DIM).min(work.width);
+    let height = saved.height.max(MIN_DIM).min(work.height);
     // `.max(work.x)` keeps the clamp range non-empty when MIN_DIM exceeds the work area (a
     // pathologically small screen); `f64::clamp` panics if min > max.
     let x = saved.x.clamp(work.x, (work.right() - width).max(work.x));
@@ -141,6 +142,12 @@ pub fn geometry_filename(config_path: &Path) -> String {
 /// silently changing it and resetting every window to default bounds. Pinned by the canonical test
 /// vectors below. Non-cryptographic; collision resistance is irrelevant (the input is a single
 /// trusted path).
+///
+/// This is **not** a drift-capable shadow of the config crates' own `fnv1a_64`
+/// (`curator-config`/`warden-config`/`lector-config`'s `hash.rs`) — that copy hashes window
+/// *titles* for session/label identity, a separate domain from this module's config-*path*
+/// hashing. Same algorithm by coincidence of both wanting a toolchain-stable hash, not a shared
+/// fact to consolidate.
 fn fnv1a_64(bytes: &[u8]) -> u64 {
     const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
     const PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -150,6 +157,182 @@ fn fnv1a_64(bytes: &[u8]) -> u64 {
         hash = hash.wrapping_mul(PRIME);
     }
     hash
+}
+
+/// Plugin-managed state: the loaded cache plus the exclusions and filename it was built with.
+struct GeometryState {
+    filename: String,
+    skip: HashSet<String>,
+    cache: Mutex<HashMap<String, Rect>>,
+}
+
+/// Windows shell-core owns that are transient by construction and must never persist bounds: the
+/// home surface, and any popped-out tab window. Excluded structurally — for **save** as well as
+/// restore — rather than by a caller-supplied list, because a detached window is created long
+/// after startup and so could never have appeared in one.
+fn is_excluded(state: &GeometryState, label: &str) -> bool {
+    label == crate::home::HOME_LABEL
+        || crate::detach::is_detached_label(label)
+        || state.skip.contains(label)
+}
+
+/// A monitor's work area (screen minus menu bar and Dock) in points, converted with **that
+/// monitor's own** scale factor. Per-monitor conversion is unambiguous; converting one monitor's
+/// rect with another's factor is the bug this module exists to remove.
+fn work_area_points(monitor: &Monitor) -> Rect {
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    Rect {
+        x: area.position.x as f64 / scale,
+        y: area.position.y as f64 / scale,
+        width: area.size.width as f64 / scale,
+        height: area.size.height as f64 / scale,
+    }
+}
+
+/// The window's current geometry in points, or `None` when it must not be recorded.
+///
+/// `outer_position` + `inner_size` mirror what restore applies (`set_position` is outer,
+/// `set_size` is inner), so the pair round-trips exactly.
+///
+/// Fullscreen is the load-bearing guard: macOS reports a fullscreen or split-view window's frame
+/// as the *tile*, and tao sets its fullscreen state in `windowWillEnterFullScreen` — before the
+/// resize events land — so checking here catches the tile geometry at every write path, not just
+/// at exit. Persisting it would reopen the window as an ordinary window the size of the tile.
+fn snapshot<R: Runtime>(window: &Window<R>) -> Option<Rect> {
+    if window.is_fullscreen().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+        return None;
+    }
+    let scale = window.scale_factor().ok()?;
+    let position = window.outer_position().ok()?.to_logical::<f64>(scale);
+    let size = window.inner_size().ok()?.to_logical::<f64>(scale);
+    Some(Rect {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+    })
+}
+
+/// Apply a saved rect, clamped to whichever monitor it most overlaps.
+///
+/// `LogicalSize`/`LogicalPosition` pass through tao unscaled (`dpi`'s
+/// `Position::Logical(p) => p.cast()`), so no scale factor is consulted anywhere on this path.
+fn restore<R: Runtime>(window: &Window<R>, saved: Rect) {
+    let work_areas: Vec<Rect> = window
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(work_area_points)
+        .collect();
+
+    match pick_monitor(saved, &work_areas) {
+        Some(i) => {
+            let fitted = clamp_to_work_area(saved, work_areas[i]);
+            let _ = window.set_size(LogicalSize::new(fitted.width, fitted.height));
+            let _ = window.set_position(LogicalPosition::new(fitted.x, fitted.y));
+        }
+        None => {
+            // The display this window was saved on is gone. Keep the size — still clamped, against
+            // the primary monitor, so a stale rect can't outgrow the screen — and drop the
+            // position so macOS places the window somewhere reachable.
+            let primary = window
+                .primary_monitor()
+                .ok()
+                .flatten()
+                .map(|m| work_area_points(&m));
+            let fitted = match primary {
+                Some(work) => clamp_to_work_area(saved, work),
+                None => saved,
+            };
+            let _ = window.set_size(LogicalSize::new(
+                fitted.width.max(MIN_DIM),
+                fitted.height.max(MIN_DIM),
+            ));
+        }
+    }
+}
+
+/// Re-snapshot every live window into the cache and write it out.
+fn flush<R: Runtime>(app: &AppHandle<R>) {
+    let state = app.state::<GeometryState>();
+    {
+        let mut cache = state.cache.lock().unwrap();
+        for (label, window) in app.windows() {
+            if is_excluded(&state, &label) {
+                continue;
+            }
+            if let Some(rect) = snapshot(&window) {
+                cache.insert(label, rect);
+            }
+        }
+    }
+    let Ok(dir) = app.path().app_config_dir() else {
+        return;
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let cache = state.cache.lock().unwrap();
+    let _ = std::fs::write(dir.join(&state.filename), encode(&cache));
+}
+
+/// Build the geometry plugin. `filename` comes from [`geometry_filename`]; `skip_labels` are an
+/// app's own transient windows (the home and detached surfaces are excluded structurally).
+pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin<R> {
+    let skip: HashSet<String> = skip_labels.iter().map(|s| s.to_string()).collect();
+
+    tauri::plugin::Builder::new("shell-geometry")
+        .setup(move |app, _api| {
+            let cache = app
+                .path()
+                .app_config_dir()
+                .ok()
+                .and_then(|dir| std::fs::read(dir.join(&filename)).ok())
+                .map(|bytes| decode(&bytes))
+                .unwrap_or_default();
+            app.manage(GeometryState {
+                filename: filename.clone(),
+                skip: skip.clone(),
+                cache: Mutex::new(cache),
+            });
+            Ok(())
+        })
+        .on_window_ready(|window| {
+            let label = window.label().to_string();
+            let state = window.state::<GeometryState>();
+            if is_excluded(&state, &label) {
+                return;
+            }
+
+            let saved = state.cache.lock().unwrap().get(&label).copied();
+            if let Some(rect) = saved {
+                restore(&window, rect);
+            }
+
+            // Snapshot on move/resize so an abnormal exit still leaves usable bounds. No
+            // suppression around `restore` is needed: an echoed event records the geometry the
+            // window genuinely has, and every value on this path is already point-correct and
+            // clamped — unlike the physical-pixel model, there is no value here that could be
+            // wrong to write back.
+            let tracked = window.clone();
+            window.on_window_event(move |event| {
+                if !matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
+                    return;
+                }
+                if let Some(rect) = snapshot(&tracked) {
+                    let state = tracked.state::<GeometryState>();
+                    let mut cache = state.cache.lock().unwrap();
+                    cache.insert(tracked.label().to_string(), rect);
+                }
+            });
+        })
+        .on_event(|app, event| {
+            if matches!(event, RunEvent::Exit) {
+                flush(app);
+            }
+        })
+        .build()
 }
 
 #[cfg(test)]
@@ -202,6 +385,28 @@ mod tests {
         let out = clamp_to_work_area(rect(0.0, 0.0, 0.0, 0.0), work);
         assert_eq!(out.width, MIN_DIM);
         assert_eq!(out.height, MIN_DIM);
+    }
+
+    /// The work-area cap wins over the MIN_DIM floor: a work area narrower than MIN_DIM (200pt)
+    /// in one axis must still bound the result, never the reverse. Unreachable on any real
+    /// display, but the headline guarantee — never larger than the work area — must hold for all
+    /// inputs, not just plausible ones.
+    #[test]
+    fn clamp_never_exceeds_a_work_area_smaller_than_min_dim() {
+        let work = rect(0.0, 0.0, 100.0, 100.0);
+        let out = clamp_to_work_area(rect(0.0, 0.0, 500.0, 500.0), work);
+        assert!(
+            out.width <= work.width,
+            "width {} > {}",
+            out.width,
+            work.width
+        );
+        assert!(
+            out.height <= work.height,
+            "height {} > {}",
+            out.height,
+            work.height
+        );
     }
 
     #[test]

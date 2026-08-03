@@ -134,38 +134,27 @@ mod runtime {
     use std::path::Path;
     use tauri::{Builder, Runtime};
 
-    /// Register the plugins every consuming app installs identically: the updater and the process
-    /// plugin (for the updater's relaunch). Returns the builder for continued chaining
-    /// (`.setup(..).invoke_handler(..)` etc.).
+    /// Register the plugins every consuming app installs identically: window geometry (persist
+    /// each window's size/position in points, keyed per-config-file via
+    /// [`crate::geometry::geometry_filename`]), the updater, and the process plugin (for the
+    /// updater's relaunch). Returns the builder for continued chaining.
     ///
-    /// `config_path` is the app's resolved config path, scoping the window-geometry store via
-    /// [`crate::geometry::geometry_filename`] — that store's own load/save/restore wiring is added
-    /// in a follow-up change; this only threads the resolved filename through. `skip_labels` are
-    /// transient windows excluded from geometry restore — pass [`crate::home::HOME_LABEL`] (or its
-    /// throwaway bounds get persisted and restored), plus any of the app's own transient windows
-    /// (warden's diagnostic window, for one).
+    /// `config_path` is the app's resolved config path — `Some(path)` scopes the geometry file to
+    /// it; `None` uses an unscoped default name.
     ///
-    /// **Detached-tab windows are deliberately never in `skip_labels`.** That list is for windows
-    /// known at *startup*, and only has an effect on automatic restore, which runs before any
-    /// window this app builds at runtime exists. A detached window (label under
-    /// [`crate::detach::DETACH_LABEL_PREFIX`]) is created well after startup, by
-    /// [`crate::detach::open_detached`], in response to the user popping a tab out — there is no
-    /// startup-time label to pass here. Instead, the app's own geometry usage (wherever it
-    /// persists/restores bounds) and its hot-reload reconcile must each call
-    /// [`crate::detach::is_detached_label`] themselves to skip these windows at the point they're
-    /// encountered, the same way `home::HOME_LABEL` is excluded structurally rather than by list
-    /// membership once created.
+    /// `skip_labels` are an app's own transient windows (warden's diagnostic window, for one),
+    /// excluded from both save and restore. The home surface and every detached-tab window are
+    /// excluded structurally inside [`crate::geometry`] and must not be listed here.
     pub fn register_plugins<R: Runtime>(
         builder: Builder<R>,
         config_path: Option<&Path>,
         skip_labels: &[&str],
     ) -> Builder<R> {
-        // Window-geometry save/restore itself (replacing tauri-plugin-window-state, removed with
-        // this change) is wired in a follow-up; this only proves `geometry_filename` resolves
-        // against a real app config path here, and keeps `skip_labels` alive for that wiring.
-        let _ = config_path.map(crate::geometry::geometry_filename);
-        let _ = skip_labels;
+        let filename = config_path
+            .map(crate::geometry::geometry_filename)
+            .unwrap_or_else(|| ".window-geometry.json".to_string());
         let builder = builder
+            .plugin(crate::geometry::plugin(filename, skip_labels))
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_process::init());
         // The home surface's and the detach surface's pages are each served over their own custom
