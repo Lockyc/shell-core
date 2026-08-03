@@ -257,14 +257,16 @@ fn restore<R: Runtime>(window: &Window<R>, saved: Rect) {
         None => {
             // The display this window was saved on is gone. Keep the size — still clamped, against
             // the primary monitor, so a stale rect can't outgrow the screen — and drop the
-            // position so macOS places the window somewhere reachable. If even the primary monitor
-            // can't be resolved, there is nothing to clamp against and the stored size is applied
-            // verbatim (floored at MIN_DIM) rather than left unbounded.
+            // position so macOS places the window somewhere reachable. If the primary monitor
+            // can't be resolved either, fall back to any known work area rather than leaving the
+            // size unbounded — a monitor is available to clamp against in that case, since
+            // `work_areas` came from the same `available_monitors()` call that found no overlap.
             let primary = window
                 .primary_monitor()
                 .ok()
                 .flatten()
-                .map(|m| work_area_points(&m));
+                .map(|m| work_area_points(&m))
+                .or_else(|| work_areas.first().copied());
             let fitted = fit_restored_size(saved, primary);
             let _ = window.set_size(LogicalSize::new(fitted.width, fitted.height));
         }
@@ -476,24 +478,27 @@ mod tests {
         );
     }
 
-    /// With a work area, `fit_restored_size` clamps into it exactly like `clamp_to_work_area` —
-    /// the branch that found an overlapping (or primary) monitor.
+    /// With a work area, `fit_restored_size` clamps into it — the branch that found an
+    /// overlapping (or primary) monitor. Asserts the concrete expected `Rect`, not a delegation
+    /// to `clamp_to_work_area` (which would only fail if extra logic were later added here).
     #[test]
     fn fit_restored_size_clamps_when_a_work_area_is_given() {
         let work = rect(0.0, 0.0, 3840.0, 2129.0);
         let saved = rect(4975.0, 375.0, 3380.0, 2578.0);
         assert_eq!(
             fit_restored_size(saved, Some(work)),
-            clamp_to_work_area(saved, work)
+            rect(460.0, 0.0, 3380.0, 2129.0)
         );
     }
 
     /// A work area narrower than `MIN_DIM` must still bound the result — the cap always wins over
-    /// the floor, even through the extra layer of indirection this helper adds.
+    /// the floor, even through the extra layer of indirection this helper adds. Distinct rect
+    /// values from `clamp_never_exceeds_a_work_area_smaller_than_min_dim` so this isn't a
+    /// same-inputs duplicate of that test one delegation layer away.
     #[test]
     fn fit_restored_size_never_exceeds_a_work_area_smaller_than_min_dim() {
-        let work = rect(0.0, 0.0, 100.0, 100.0);
-        let out = fit_restored_size(rect(0.0, 0.0, 500.0, 500.0), Some(work));
+        let work = rect(0.0, 0.0, 150.0, 80.0);
+        let out = fit_restored_size(rect(10.0, 10.0, 900.0, 600.0), Some(work));
         assert!(out.width <= work.width);
         assert!(out.height <= work.height);
     }

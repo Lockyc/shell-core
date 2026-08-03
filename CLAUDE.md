@@ -28,15 +28,27 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   it's handed is each app's own concern. It lives here rather than in chrome-core's JS because
   warden auto-unloads a tab straight from Rust (`handle_child_exited`, on child-process exit), with
   no chrome round-trip to hook the decision into.
-- `register_plugins()` (`runtime` feature) — window-state + updater + process, the three plugins
-  every app registers the same way. It also owns the **window-state filename policy**: given an
-  app's resolved config path (`Option<&Path>`) it derives
-  `.window-state-{fnv1a_64(canonicalize(path)):016x}.json` (`state_filename`). The
-  canonicalize→hash→format step was byte-identical across all three apps — only the *path* is
-  app-specific — so it lives here once (the old per-app copies + their "each app hashes its own
-  path" comments were the drift this removed). shell-core's `fnv1a_64` is a spec-defined,
-  test-vector-pinned primitive, **not** a shadow of the config crates' own `fnv1a_64` (that hashes
-  window titles / tab dirs for *label identity* — a separate domain that stays in each config crate).
+- `register_plugins()` (`runtime` feature) — installs the three plugins every app registers the
+  same way: [`geometry`](below), the updater, and the process plugin (for the updater's relaunch) —
+  plus the home and detach surfaces' custom protocols. Given an app's resolved config path
+  (`Option<&Path>`) it hands `geometry` the derived per-config filename; `None` is a deliberate,
+  documented fallback to an unscoped `.window-geometry.json` for an app with no per-config state to
+  scope, not a gap to close.
+- **`geometry`** (`runtime` feature) — per-window size/position persistence. It owns all of it:
+  point-based storage, the fullscreen/minimized recording guard, the target-monitor clamp on
+  restore, and the structural exclusion of the home and every detached-tab window (for save as well
+  as restore — see `detach`'s label scheme above). Nothing stays per-app beyond handing it a
+  resolved config path: the canonicalize→hash→format filename step
+  (`.window-geometry-{fnv1a_64(canonicalize(path)):016x}.json`, `geometry_filename`) lives here
+  once, since it was byte-identical across all three apps' old per-app copies. Uses its own
+  `fnv1a_64` — a spec-defined, test-vector-pinned primitive, **not** a shadow of the config crates'
+  own `fnv1a_64` (that hashes window titles/tab dirs for *label identity*, a separate domain that
+  stays in each config crate).
+  - **Footgun that survives: don't reintroduce physical-pixel persistence.** Persisted geometry is
+    always AppKit points, and every restore is clamped to the target monitor's work area. Physical
+    pixels are points × the occupied screen's scale factor, so a value saved on one display and
+    applied against another of a different scale factor is wrong by that ratio — this is the
+    reason `geometry` reads and writes only points and never a native pixel size.
   - **Footgun that survives:** the hash drives a *persistent on-disk filename*, so it must use a
     **fixed** algorithm (`fnv1a_64`), never `std::hash::DefaultHasher` — its output isn't guaranteed
     stable across Rust releases, so a toolchain bump silently changes the filename and resets every
@@ -164,8 +176,8 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   things:
   - **A reserved label scheme.** `DETACH_LABEL_PREFIX = "shell-detach:"` + `detached_label(token)`
     build a window label for a popped-out tab; `is_detached_label`/`detach_token` are the inverse.
-    A consumer's hot-reload reconcile and window-state persistence both call `is_detached_label`
-    themselves to skip these windows wherever they encounter one — the same exclusion
+    A consumer's hot-reload reconcile calls `is_detached_label` itself to skip these windows, and
+    `geometry` uses the same check internally to exclude them from persistence — the same exclusion
     `home::HOME_LABEL` gets, generalized from a single fixed label to an unbounded set (one per
     detached tab). This is why `register_plugins`' `skip_labels` deliberately never carries a
     detached label: that list is for windows known at *startup*, and a detached window is created

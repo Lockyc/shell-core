@@ -122,8 +122,10 @@ fn window_entry_json(w: &WindowEntry) -> String {
 }
 
 /// Build the `window.__SHELL_HOME__` payload `home.html` reads: a small hand-rolled JSON literal
-/// (every string run through [`js_string_escape`]) rather than pulling in `serde_json` for one
-/// fixed, three-shape object.
+/// (every string run through [`js_string_escape`]). `serde_json` is a dependency now (the geometry
+/// store parses with it — see `geometry.rs`), but this payload is a fixed, three-shape, one-way
+/// emission with no need to ever be parsed back, so hand-rolling it stays simpler than defining a
+/// `Serialize` type for it.
 fn payload_json(state: &HomeState, app_name: &str) -> String {
     let app = js_string_escape(app_name);
     match state {

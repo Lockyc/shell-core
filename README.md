@@ -24,9 +24,15 @@ It carries two concerns, split by Cargo feature so a build-dependency stays ligh
   every app-specific value is read from a tracked per-app `scripts/tooling.env` (three keys:
   `APP_NAME`, `TAURI_CRATE_DIR`, `UPDATER_REPO`). `build_stamp()` is the other build-time helper — a
   git sha/date stamp for the About box.
-- **Runtime (`runtime` feature).** Three pieces of app-shell every app would otherwise hand-roll:
-  - `register_plugins()` installs the plugins every app registers identically: window-state,
-    updater, process.
+- **Runtime (`runtime` feature).** Four pieces of app-shell every app would otherwise hand-roll:
+  - `register_plugins()` installs the plugins every app registers identically: `geometry`
+    (per-window size/position persistence), the updater, and the process plugin (for the updater's
+    relaunch).
+  - `geometry` persists each window's size and position in AppKit points, clamped to the target
+    monitor's work area on restore, and never recorded while a window is fullscreen or minimized.
+    It replaces `tauri-plugin-window-state`, whose physical-pixel model is wrong across monitors of
+    differing scale factor — a rect saved on a 2x display and applied on a 1x one comes back out by
+    the ratio.
   - `menu::build_spine()` builds the **menu spine** — the App submenu (About, Check for Updates…),
     the Config submenu (Edit Config / Reveal in Finder), and the Window submenu (a checked
     per-window selector), plus the family-standard close accelerators (⌘W a tab, ⌘⇧W the window) as
@@ -41,11 +47,10 @@ It carries two concerns, split by Cargo feature so a build-dependency stays ligh
 ## Status
 
 In use. Extracted from warden and curator's copy-pasted tooling; all three apps (warden, curator,
-and lector) now consume it, pinned to a `0.1.x` rev. **Deliberately NOT shared** (each diverges per
-app): IPC fan-out, the config watcher, the per-app window-state filename hash, the apps' own menu
-*items* (only the spine above is shared), and the chrome-caller command gate (curator-only — warden
-hosts no content webviews at all, and lector's remote-origin content webviews are denied by Tauri's
-own IPC dispatch without needing an explicit gate).
+and lector) now consume it. **Deliberately NOT shared** (each diverges per app): IPC fan-out, the
+config watcher, the apps' own menu *items* (only the spine above is shared), and the chrome-caller
+command gate (curator-only — warden hosts no content webviews at all, and lector's remote-origin
+content webviews are denied by Tauri's own IPC dispatch without needing an explicit gate).
 
 ## How it's consumed
 

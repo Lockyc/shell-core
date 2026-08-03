@@ -4,9 +4,10 @@
 //! behind each piece here.
 //!
 //! - The **label scheme** (`DETACH_LABEL_PREFIX`/`detached_label`/`is_detached_label`/
-//!   `detach_token`) marks a window as an ephemeral "popped out" tab so hot-reload reconcile and
-//!   window-state persistence both know to skip it, the same exclusion [`crate::home::HOME_LABEL`]
-//!   gets, generalized to an unbounded set of ephemeral windows (one per detached tab).
+//!   `detach_token`) marks a window as an ephemeral "popped out" tab so a consuming app's
+//!   hot-reload reconcile can skip it, and so [`crate::geometry`] can exclude it from persistence
+//!   internally (both save and restore) — the same exclusion [`crate::home::HOME_LABEL`] gets,
+//!   generalized to an unbounded set of ephemeral windows (one per detached tab).
 //! - The **banner-shell page** (`DETACH_SCHEME`/`DetachSpec`/`register_detach_protocol`) is the
 //!   slim identity banner (title + accent stripe) a detached window shows above its transparent
 //!   content hole, reporting that hole's rect to the app via `set_hole_rect` — every app already
@@ -15,9 +16,10 @@
 //! Touches no config-core symbol — the cores stay mutually independent.
 
 /// Prefix marking a window label as a detached-tab window. A label under this prefix is never a
-/// real (config-defined) window label, so reconcile and window-state persistence can both use
-/// [`is_detached_label`] to skip it — the same exclusion `home::HOME_LABEL` gets, generalized to
-/// an unbounded set of ephemeral windows (one per detached tab) rather than a single fixed label.
+/// real (config-defined) window label, so a consuming app's reconcile can use [`is_detached_label`]
+/// to skip it, and [`crate::geometry`] uses the same check internally to exclude it from
+/// persistence — the same exclusion `home::HOME_LABEL` gets, generalized to an unbounded set of
+/// ephemeral windows (one per detached tab) rather than a single fixed label.
 pub const DETACH_LABEL_PREFIX: &str = "shell-detach:";
 
 /// Build the Tauri window label for a detached tab identified by `token` (an opaque,
@@ -27,7 +29,8 @@ pub fn detached_label(token: &str) -> String {
 }
 
 /// Whether `label` names a detached-tab window (as opposed to a real config-defined window or the
-/// home surface). Reconcile and window-state persistence use this to skip these windows.
+/// home surface). A consuming app's reconcile, and [`crate::geometry`] internally, both use this
+/// to skip these windows.
 pub fn is_detached_label(label: &str) -> bool {
     label.starts_with(DETACH_LABEL_PREFIX)
 }
@@ -64,9 +67,10 @@ pub struct DetachSpec {
 
 /// Build the `window.__SHELL_DETACH__` payload `detach.html` reads: a small hand-rolled JSON
 /// literal (every string run through [`crate::home::js_string_escape`] — the same function
-/// `home::payload_json` uses, not a second copy) rather than pulling in `serde_json` for one fixed
-/// object. Only the page-relevant fields are embedded: `width`/`height` size the *window* at
-/// creation time, the page itself never reads them.
+/// `home::payload_json` uses, not a second copy). Same reasoning as that payload's: `serde_json`
+/// is a dependency now, but this is a fixed, one-way emission with no `Serialize` type worth
+/// defining for it. Only the page-relevant fields are embedded: `width`/`height` size the *window*
+/// at creation time, the page itself never reads them.
 fn detach_payload_json(spec: &DetachSpec, app_name: &str) -> String {
     let colour = match &spec.colour {
         Some(c) => format!("\"{}\"", crate::home::js_string_escape(c)),

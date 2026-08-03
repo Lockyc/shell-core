@@ -11,11 +11,15 @@
 //!   `TAURI_CRATE_DIR`, `UPDATER_REPO`). [`build_stamp`] is the other build-time helper: a git
 //!   sha/date stamp for the About box.
 //! - **Runtime (`runtime` feature).** [`register_plugins`] installs the plugins every app registers
-//!   identically (updater + process) and the home + detach surfaces' custom protocols.
-//!   [`geometry`] owns per-window size/position persistence in AppKit points, clamped to the
-//!   target monitor's work area on restore — given an app's resolved config path it derives
-//!   `.window-geometry-{fnv1a_64(canonicalize(path)):016x}.json` ([`geometry_filename`]), the
-//!   canonicalize→hash→format step that was copied per app (only the *path* is app-specific).
+//!   identically (the updater + process plugins) and the home + detach surfaces' custom protocols.
+//!   [`geometry`] persists each window's size/position — in AppKit points, clamped to the target
+//!   monitor's work area on restore, and never recorded while a window is fullscreen or minimized.
+//!   It replaces `tauri-plugin-window-state`, whose physical-pixel model is wrong across monitors
+//!   of differing scale factor: physical is points × the occupied screen's scale factor, so a rect
+//!   saved on a 2x display and applied on a 1x one is out by the ratio. Given an app's resolved
+//!   config path it derives `.window-geometry-{fnv1a_64(canonicalize(path)):016x}.json`
+//!   ([`geometry_filename`]), the canonicalize→hash→format step that was copied per app (only the
+//!   *path* is app-specific).
 //!   [`menu`] builds the shared menu spine — the App/Config/Window submenus, identical across apps,
 //!   plus the Close Tab and Pop Out Tab items; each app's own items (curator's Reload Tab, warden's
 //!   tab semantics) interleave with it. [`home`] is the surface an app shows when it would otherwise
