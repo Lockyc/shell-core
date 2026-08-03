@@ -19,7 +19,8 @@ runtime = [
     "dep:tauri",
     "dep:tauri-plugin-updater",
     "dep:tauri-plugin-process",
-    "dep:tauri-plugin-window-state",
+    "dep:serde",
+    "dep:serde_json",
     "dep:notify",
     "dep:objc2",
     "dep:objc2-app-kit",
@@ -45,7 +46,12 @@ runtime = [
 tauri = { version = "2", features = ["unstable", "macos-private-api"], optional = true }
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-process = { version = "2", optional = true }
-tauri-plugin-window-state = { version = "2", optional = true }
+# Real JSON for the window-geometry store (src/geometry.rs). shell-core hand-rolls JSON for the
+# home/detach payloads — a fixed-shape, one-way, escape-only case — but the geometry store must
+# *parse* a file it wrote earlier, and hand-rolling a parser to avoid a dep tauri already carries
+# would be a worse trade. Optional, so `just zero-dep` stays green.
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 # The shared config-file hot-reload watcher (src/watch.rs), consumed by curator + lector. Same
 # major as their own pin so cargo unifies to one `notify` across each app's dependency graph.
 notify = { version = "6", optional = true }
