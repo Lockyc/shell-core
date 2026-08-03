@@ -54,6 +54,21 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     stable across Rust releases, so a toolchain bump silently changes the filename and resets every
     window's saved bounds ("the app forgot my layout"). The pinned test vectors here are what keep
     it fixed. Don't swap the algorithm.
+  - **Footgun that survives: `restore` moves the window, sizes it, then moves it again — never
+    just size-then-move.** A restored window still sits at its tao creation-time position (none of
+    the three apps pass a starting position) when the fitted size would otherwise be applied, and
+    `NSWindow.setContentSize:` runs `constrainFrameRect:toScreen:` against whatever screen the
+    window currently occupies — not the one it's headed to. Sizing before moving lets AppKit
+    silently constrain the rect against the wrong monitor (e.g. shrinking a large-external-display
+    rect to fit the built-in display), and the resulting `Resized` event then caches that shrunken
+    size, making the corruption stick through the next quit. Don't collapse this back to two calls.
+  - **Footgun that survives: the fullscreen/minimized guard in `snapshot` must fail *closed*.**
+    `is_fullscreen()`/`is_minimized()` default to `true` on a query error, not `false` — skipping a
+    snapshot on error costs a slightly stale rect, while recording one while genuinely fullscreen
+    persists the tile geometry this guard exists to prevent. Sequoia's drag-to-edge window
+    *tiling* is a separate thing from this guard and is **not** covered by it: tiling isn't a
+    fullscreen space (classic Split View is), so a tiled window's ordinary bounds are correctly
+    still recorded; only a genuine fullscreen/split-view space is skipped.
 - **`compositing`** (`runtime` feature) — the hole-punch content-webview placement (`HoleRect`,
   `CHROME_W`, `initial_hole`, `layout_webviews`) shared byte-identically by curator + lector: the
   sidebar chrome is the window's main webview, and `add_child` content webviews are positioned to
@@ -152,7 +167,9 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     must **never** depend on config-core: the three cores are a flat fan-out, and a core→core edge
     would let a config-core bump force a shell-core rev and break the `*-dev`/`*-pin` loop's
     assumption that each core is independently patchable.
-  - Pass `HOME_LABEL` in `register_plugins`' `skip_labels`, or its throwaway bounds get persisted.
+  - **`HOME_LABEL` is excluded from geometry persistence structurally, inside `geometry::is_excluded`
+    — never via `register_plugins`' `skip_labels`.** All three apps pass `&[]` there; a caller
+    listing it would be redundant at best.
   - **The page is served over its own custom URI scheme (`home::HOME_SCHEME`, registered by
     `register_plugins` via `home::register_protocol`), never `WebviewUrl::App`.** This is
     deliberate, not a shortcut: Tauri's ACL engine classifies a webview as `Origin::Local` or
@@ -177,11 +194,9 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   - **A reserved label scheme.** `DETACH_LABEL_PREFIX = "shell-detach:"` + `detached_label(token)`
     build a window label for a popped-out tab; `is_detached_label`/`detach_token` are the inverse.
     A consumer's hot-reload reconcile calls `is_detached_label` itself to skip these windows, and
-    `geometry` uses the same check internally to exclude them from persistence — the same exclusion
-    `home::HOME_LABEL` gets, generalized from a single fixed label to an unbounded set (one per
-    detached tab). This is why `register_plugins`' `skip_labels` deliberately never carries a
-    detached label: that list is for windows known at *startup*, and a detached window is created
-    well after startup in response to a user action — there is no label to pass up front.
+    `geometry` uses the same check internally to exclude them from persistence — the same
+    structural exclusion `home::HOME_LABEL` gets, generalized from a single fixed label to an
+    unbounded set (one per detached tab), whenever a detached window is created.
   - **A banner-only shell page** (`detach.html` — title + origin accent, no sidebar), served over
     its own custom protocol `DETACH_SCHEME`, registered on the `Builder` by
     `register_detach_protocol` (chained into `register_plugins` alongside `home`'s). Same reasoning

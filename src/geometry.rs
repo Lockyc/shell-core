@@ -25,11 +25,11 @@ const MIN_DIM: f64 = 200.0;
 /// points × the scale factor of whichever screen the window occupies, so a value saved on a 2x
 /// display and applied on a 1x one is out by the ratio. Points make that failure unrepresentable.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Rect {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
+struct Rect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
 }
 
 impl Rect {
@@ -193,14 +193,32 @@ fn work_area_points(monitor: &Monitor) -> Rect {
 /// The window's current geometry in points, or `None` when it must not be recorded.
 ///
 /// `outer_position` + `inner_size` mirror what restore applies (`set_position` is outer,
-/// `set_size` is inner), so the pair round-trips exactly.
+/// `set_size` is inner), so the pair round-trips exactly. That round-trip is also why storing
+/// `outer_position` alongside `inner_size` in one `Rect` is safe to treat as a single rectangle in
+/// `clamp_to_work_area`, rather than a mismatched frame/content pair: it holds only because every
+/// window this module manages is built with `TitleBarStyle::Overlay`, which makes the content view
+/// span the full frame (no titlebar strip to make the two spaces diverge). A future window built
+/// without `Overlay` would have a taller frame than its content size, and clamping the content size
+/// against the work area would silently let the actual on-screen frame — titlebar included —
+/// exceed it.
 ///
 /// Fullscreen is the load-bearing guard: macOS reports a fullscreen or split-view window's frame
 /// as the *tile*, and tao sets its fullscreen state in `windowWillEnterFullScreen` — before the
 /// resize events land — so checking here catches the tile geometry at every write path, not just
 /// at exit. Persisting it would reopen the window as an ordinary window the size of the tile.
+///
+/// Note macOS Sequoia's drag-to-edge window *tiling* is a different thing from this guard: tiling
+/// isn't a fullscreen space (classic Split View is), so a tiled window's bounds are ordinary window
+/// bounds and are correctly still recorded here — only a genuine fullscreen/split-view space skips
+/// the snapshot.
+///
+/// Both queries fail closed (`unwrap_or(true)`), not open: a query error is treated as "assume
+/// fullscreen/minimized, skip the snapshot" rather than "assume neither, record it". The two
+/// failure costs are asymmetric — skipping a snapshot on a query error costs a slightly stale rect;
+/// recording one while genuinely fullscreen persists the tile geometry, which is the exact bug this
+/// guard exists to prevent. Given that asymmetry, failing closed is the only defensible default.
 fn snapshot<R: Runtime>(window: &Window<R>) -> Option<Rect> {
-    if window.is_fullscreen().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+    if window.is_fullscreen().unwrap_or(true) || window.is_minimized().unwrap_or(true) {
         return None;
     }
     let scale = window.scale_factor().ok()?;
@@ -251,6 +269,20 @@ fn restore<R: Runtime>(window: &Window<R>, saved: Rect) {
     match pick_monitor(saved, &work_areas) {
         Some(i) => {
             let fitted = fit_restored_size(saved, Some(work_areas[i]));
+            // Move, then size, then move again — never just size-then-move. `fitted` is clamped to
+            // the work area the window is *headed to*, but at this point it still sits at its
+            // creation-time position (none of the three apps pass `.position()`/`.center()`, so tao
+            // places it on the main display by default). `NSWindow.setContentSize:` routes through
+            // `setFrame:display:`, which runs `constrainFrameRect:toScreen:` against whatever screen
+            // the window currently occupies — so applying the fitted size before the window has
+            // moved lets AppKit constrain it against the *wrong* monitor (e.g. a rect saved on a
+            // large external display gets its height cut to fit a smaller built-in one). The window
+            // then moves to the right monitor already the wrong size, and the resulting `Resized`
+            // event caches that shrunken size — making the corruption stick through the next quit.
+            // The first move gets the window onto the right screen before any size is applied; the
+            // second absorbs whatever `constrainFrameRect:toScreen:` did while the window still had
+            // its creation size. The extra call is free — don't "simplify" this back to two calls.
+            let _ = window.set_position(LogicalPosition::new(fitted.x, fitted.y));
             let _ = window.set_size(LogicalSize::new(fitted.width, fitted.height));
             let _ = window.set_position(LogicalPosition::new(fitted.x, fitted.y));
         }
@@ -261,6 +293,12 @@ fn restore<R: Runtime>(window: &Window<R>, saved: Rect) {
             // can't be resolved either, fall back to any known work area rather than leaving the
             // size unbounded — a monitor is available to clamp against in that case, since
             // `work_areas` came from the same `available_monitors()` call that found no overlap.
+            //
+            // No `set_position` call here, so the move-then-size-then-move dance above doesn't
+            // apply: the window never leaves the screen it's already on (normally the main
+            // display, where tao placed it at creation), and the size is clamped against that same
+            // screen's — or the primary's — work area, so there's no cross-monitor constraint for
+            // AppKit to silently apply.
             let primary = window
                 .primary_monitor()
                 .ok()
