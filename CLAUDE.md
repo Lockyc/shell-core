@@ -19,8 +19,13 @@ shell-core is the home for app-agnostic **shell + tooling**: anything identical 
 regardless of what it hosts. It is NOT a place to abstract things that merely *look* similar.
 
 **In:**
-- The three release scripts (`scripts/release.sh`, `gen-latest-json.sh`, `install-app.sh`) — generic,
-  param-driven, embedded + materialized (below).
+- The release/deploy scripts (`scripts/release.sh`, `gen-latest-json.sh`, `install-app.sh`,
+  `launch-app.sh`) — generic, param-driven, embedded + materialized (below). `install-app.sh` and
+  `launch-app.sh` are a deliberate pair: installing never launches ("the caller decides"), and
+  launching is its own script because **`open` forwards the caller's whole environment to the app**,
+  so a bare `open` in a deploy recipe runs the app in a terminal's environment that no real launch
+  ever reproduces. `launch-app.sh` wraps it in `env -i` to get the launchd GUI-session environment
+  instead. Its header carries the full footgun — don't re-derive it in a consuming app's justfile.
 - `build_stamp()` — git sha/date → `BUILD_GIT_SHA`/`BUILD_DATE` for the About box.
 - **The shared tab-unload policy** (`tabs::pick_live_neighbour`, default surface — no `runtime`
   feature). One decision every app makes identically: which sibling tab becomes active after a
