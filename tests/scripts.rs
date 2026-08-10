@@ -22,6 +22,27 @@ fn scripts_are_embedded_and_generic() {
     }
 }
 
+/// The release artifact is a universal binary, and the updater matches on the running install's
+/// OWN arch — so a manifest missing a platform key makes auto-update go silently quiet (no error,
+/// no bar) for every user on that architecture, invisibly from the machine that cut the release.
+/// Nothing else fails when a key is dropped, so assert both are present and that the build that
+/// justifies them actually targets universal.
+#[test]
+fn updater_manifest_covers_both_macos_architectures() {
+    for key in ["darwin-aarch64", "darwin-x86_64"] {
+        assert!(
+            shell_core::GEN_LATEST_SH.contains(key),
+            "gen-latest-json.sh dropped the {key} platform entry — auto-update goes silently \
+             quiet for every install on that architecture"
+        );
+    }
+    assert!(
+        shell_core::RELEASE_SH.contains("universal-apple-darwin"),
+        "release.sh must build --target universal-apple-darwin — a host-arch bundle cannot back \
+         both platform keys in the manifest"
+    );
+}
+
 #[test]
 fn materialize_writes_executable_scripts() {
     let dir = std::env::temp_dir().join(format!("shell-core-test-{}", std::process::id()));

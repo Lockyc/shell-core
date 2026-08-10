@@ -26,6 +26,16 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   so a bare `open` in a deploy recipe runs the app in a terminal's environment that no real launch
   ever reproduces. `launch-app.sh` wraps it in `env -i` to get the launchd GUI-session environment
   instead. Its header carries the full footgun — don't re-derive it in a consuming app's justfile.
+  `release.sh` builds `--target universal-apple-darwin`, so every consuming app's release artifact
+  runs on both Apple Silicon and Intel regardless of which Mac cut it, and `gen-latest-json.sh`
+  emits **both** `darwin-aarch64` and `darwin-x86_64` pointing at that one tarball.
+  - **Footgun: keep both platform keys.** The updater matches on the running install's *own* arch
+    and finds nothing when its key is absent — which surfaces as auto-update going **silently
+    quiet** (no error, no update bar, no log) for every user on the missing architecture, so the
+    breakage is invisible from the machine that cut the release. Both entries carry the same
+    signature because they name the same universal tarball; that is not redundancy to collapse.
+  - Release-only: `just build`/`just deploy`/`install.sh` stay host-arch, which is all a local
+    install needs and is half the compile.
 - `build_stamp()` — git sha/date → `BUILD_GIT_SHA`/`BUILD_DATE` for the About box.
 - **The shared tab-unload policy** (`tabs::pick_live_neighbour`, default surface — no `runtime`
   feature). One decision every app makes identically: which sibling tab becomes active after a

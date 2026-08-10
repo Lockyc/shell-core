@@ -10,6 +10,11 @@
 # key, so the bundle inherits it. Run this AFTER the release commit is tagged and pushed and
 # `gh release create v<version>` has published the notes (see CLAUDE.md › Releases); this script
 # only builds + attaches the macOS artifact.
+#
+# The release artifact is a UNIVERSAL binary (arm64 + x86_64) — one bundle both architectures run,
+# so a release cut on either kind of Mac serves every user and latest.json can point both platform
+# keys at the same tarball. This is a release-only target: `just build`/`just deploy`/install.sh
+# stay host-arch, which is all a local install needs and is half the compile.
 set -euo pipefail
 source "$(dirname "$0")/tooling.env"
 cd "$(dirname "$0")/.."
@@ -23,7 +28,11 @@ VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$VERSION_FILE" | head -1)"
 [ -n "$VERSION" ] || { echo "release: could not read version from $VERSION_FILE" >&2; exit 1; }
 TAG="v$VERSION"
 ZIP="${APP_NAME}-${VERSION}-macos.zip"
-APP="target/release/bundle/macos/${APP_NAME}.app"
+# Single-sourced here and passed to gen-latest-json.sh — the bundle dir moves with TARGET, so a
+# second copy of this path would silently read the stale host-arch bundle from an earlier build.
+TARGET="universal-apple-darwin"
+BUNDLE_DIR="target/${TARGET}/release/bundle/macos"
+APP="${BUNDLE_DIR}/${APP_NAME}.app"
 
 # The artifact must match the tag: build only from a clean tree whose HEAD *is* the tag. Otherwise
 # the notarized zip attached to $TAG could silently contain uncommitted or post-tag code — the one
@@ -66,11 +75,11 @@ if ! gh release view "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "→ building + notarizing ${APP_NAME} $VERSION (cargo tauri build) …"
+echo "→ building + notarizing ${APP_NAME} $VERSION (cargo tauri build --target $TARGET) …"
 # createUpdaterArtifacts is enabled here via --config, NOT in the committed tauri.conf.json: baking
 # it in makes every `cargo tauri build` demand TAURI_SIGNING_PRIVATE_KEY, which breaks keyless
 # from-source builds (install.sh / just build / just deploy). Release-only, so those stay keyless.
-( cd "$TAURI_CRATE_DIR" && cargo tauri build --config '{"bundle":{"createUpdaterArtifacts":true}}' )
+( cd "$TAURI_CRATE_DIR" && cargo tauri build --target "$TARGET" --config '{"bundle":{"createUpdaterArtifacts":true}}' )
 [ -d "$APP" ] || { echo "release: bundle not found at $APP" >&2; exit 1; }
 
 echo "→ zipping $APP → $ZIP (ditto, preserves the stapled notarization ticket)"
@@ -83,13 +92,13 @@ gh release upload "$TAG" "$ZIP" --clobber
 # Updater artifacts: the signed .app.tar.gz (+ .sig) existing installs download, and the manifest
 # the updater fetches from the releases/latest/download/ alias. createUpdaterArtifacts + the signing
 # env above produce the tarball + .sig during the build.
-TARBALL="target/release/bundle/macos/${APP_NAME}.app.tar.gz"
+TARBALL="${BUNDLE_DIR}/${APP_NAME}.app.tar.gz"
 [ -f "$TARBALL" ] && [ -f "$TARBALL.sig" ] || {
   echo "release: updater artifacts missing at ${TARBALL} (+ .sig) — is createUpdaterArtifacts on + the signing env set?" >&2
   exit 1
 }
 echo "→ generating latest.json + uploading updater artifacts to $TAG"
-bash scripts/gen-latest-json.sh "$VERSION" latest.json
+bash scripts/gen-latest-json.sh "$VERSION" latest.json "$BUNDLE_DIR"
 gh release upload "$TAG" "$TARBALL" "$TARBALL.sig" latest.json --clobber
 
 echo "✓ attached $ZIP + updater artifacts (${APP_NAME}.app.tar.gz, .sig, latest.json) to $TAG"
