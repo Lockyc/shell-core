@@ -51,8 +51,10 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   scope, not a gap to close.
 - **`geometry`** (`runtime` feature) — per-window size/position persistence. It owns all of it:
   point-based storage, the fullscreen/minimized recording guard, the target-monitor clamp on
-  restore, and the structural exclusion of the home and every detached-tab window (for save as well
-  as restore — see `detach`'s label scheme above). Nothing stays per-app beyond handing it a
+  restore, and the structural exclusion of the home surface (for save as well as restore).
+  **A detached-tab window is persisted, not excluded** — its label is deterministic per tab, so a
+  popped-out tab reopens at the size and position it was last left at; see `detach`'s label scheme
+  below. Nothing stays per-app beyond handing it a
   resolved config path: the canonicalize→hash→format filename step
   (`.window-geometry-{fnv1a_64(canonicalize(path)):016x}.json`, `geometry_filename`) lives here
   once, since it was byte-identical across all three apps' old per-app copies. Uses its own
@@ -208,10 +210,19 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   things:
   - **A reserved label scheme.** `DETACH_LABEL_PREFIX = "shell-detach:"` + `detached_label(token)`
     build a window label for a popped-out tab; `is_detached_label`/`detach_token` are the inverse.
-    A consumer's hot-reload reconcile calls `is_detached_label` itself to skip these windows, and
-    `geometry` uses the same check internally to exclude them from persistence — the same
-    structural exclusion `home::HOME_LABEL` gets, generalized from a single fixed label to an
-    unbounded set (one per detached tab), whenever a detached window is created.
+    A consumer's hot-reload reconcile calls `is_detached_label` itself to skip these windows.
+    - **The `token` a consumer passes is load-bearing beyond uniqueness — it must derive from a
+      durable tab identity.** `geometry` persists a detached window's size and position keyed on
+      the resulting label; that is *why* a popped-out tab reopens at the shape you left it. A token
+      built from a per-session counter or allocation order would silently forget the geometry every
+      launch and orphan an entry each time. Every consumer already derives it from a stable
+      identity (warden hashes `origin_label:tab_key`; curator and lector hash the tab's own label),
+      and each pins that determinism with its own test.
+    - **`DetachSpec`'s `width`/`height` are the first-pop-out default only.** Restore overwrites
+      them inside `open_detached`'s `build()` for any tab popped out before, so a consumer sizing
+      its docked content must read the built window's real `inner_size()` inside `birth_content`,
+      never the constants it passed in. warden hit exactly this: its reparented native surface was
+      born at the default rect and only snapped right once `detach.html` reported the true hole.
   - **A banner-only shell page** (`detach.html` — title + origin accent, no sidebar), served over
     its own custom protocol `DETACH_SCHEME`, registered on the `Builder` by
     `register_detach_protocol` (chained into `register_plugins` alongside `home`'s). Same reasoning

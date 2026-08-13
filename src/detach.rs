@@ -4,10 +4,11 @@
 //! behind each piece here.
 //!
 //! - The **label scheme** (`DETACH_LABEL_PREFIX`/`detached_label`/`is_detached_label`/
-//!   `detach_token`) marks a window as an ephemeral "popped out" tab so a consuming app's
-//!   hot-reload reconcile can skip it, and so [`crate::geometry`] can exclude it from persistence
-//!   internally (both save and restore) — the same exclusion [`crate::home::HOME_LABEL`] gets,
-//!   generalized to an unbounded set of ephemeral windows (one per detached tab).
+//!   `detach_token`) marks a window as a "popped out" tab so a consuming app's hot-reload
+//!   reconcile can skip it. The label is *stable per tab* — every consumer derives `token` from a
+//!   durable tab identity — which is what lets [`crate::geometry`] persist a detached window's
+//!   size and position like any other window's, rather than excluding it the way
+//!   [`crate::home::HOME_LABEL`] is excluded.
 //! - The **banner-shell page** (`DETACH_SCHEME`/`DetachSpec`/`register_detach_protocol`) is the
 //!   slim identity banner (title + accent stripe) a detached window shows above its transparent
 //!   content hole, reporting that hole's rect to the app via `set_hole_rect` — every app already
@@ -17,20 +18,23 @@
 
 /// Prefix marking a window label as a detached-tab window. A label under this prefix is never a
 /// real (config-defined) window label, so a consuming app's reconcile can use [`is_detached_label`]
-/// to skip it, and [`crate::geometry`] uses the same check internally to exclude it from
-/// persistence — the same exclusion `home::HOME_LABEL` gets, generalized to an unbounded set of
-/// ephemeral windows (one per detached tab) rather than a single fixed label.
+/// to skip it.
 pub const DETACH_LABEL_PREFIX: &str = "shell-detach:";
 
 /// Build the Tauri window label for a detached tab identified by `token` (an opaque,
 /// caller-chosen identifier — e.g. the tab's own key).
+///
+/// **`token` must be derived from a durable tab identity, not a per-session counter or an
+/// allocation order.** [`crate::geometry`] keys a detached window's remembered size and position
+/// on the resulting label, so a token that changes between sessions silently forgets the tab's
+/// geometry and leaves an orphan entry behind each time. Every consumer already does this
+/// (warden hashes `origin_label:tab_key`; curator and lector hash the tab's own label).
 pub fn detached_label(token: &str) -> String {
     format!("{DETACH_LABEL_PREFIX}{token}")
 }
 
 /// Whether `label` names a detached-tab window (as opposed to a real config-defined window or the
-/// home surface). A consuming app's reconcile, and [`crate::geometry`] internally, both use this
-/// to skip these windows.
+/// home surface). A consuming app's reconcile uses this to skip these windows.
 pub fn is_detached_label(label: &str) -> bool {
     label.starts_with(DETACH_LABEL_PREFIX)
 }
@@ -58,6 +62,11 @@ const DETACH_HTML: &str = include_str!("detach.html");
 /// What a popped-out tab's banner shows, plus the size the detached window should open at.
 /// `colour` is the tab's/window's accent colour (the same hex the sidebar swatch uses); `None`
 /// falls back to the page's own default stripe colour.
+///
+/// `width`/`height` are the **first-pop-out default only**. Once this tab has been popped out and
+/// resized, [`crate::geometry`] restores its remembered size and position over them during
+/// [`open_detached`]'s `build()` — so a caller sizing its own content off these constants rather
+/// than off the built window's real `inner_size()` will get it wrong for every subsequent pop-out.
 pub struct DetachSpec {
     pub title: String,
     pub colour: Option<String>,

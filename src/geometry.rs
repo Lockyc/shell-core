@@ -166,14 +166,24 @@ struct GeometryState {
     cache: Mutex<HashMap<String, Rect>>,
 }
 
-/// Windows shell-core owns that are transient by construction and must never persist bounds: the
-/// home surface, and any popped-out tab window. Excluded structurally — for **save** as well as
-/// restore — rather than by a caller-supplied list, because a detached window is created long
-/// after startup and so could never have appeared in one.
+/// The one window shell-core owns that must never persist bounds: the home surface. Excluded
+/// structurally — for **save** as well as restore — rather than by a caller-supplied list, since
+/// every consumer has it and none of them should have to remember to list it. `skip` is the
+/// caller's own transient windows on top.
+///
+/// **A detached-tab window is deliberately NOT excluded**, though it is just as ephemeral. What
+/// makes it persistable is that its label is *deterministic per tab*: every consumer derives the
+/// detach token from a stable tab identity (warden from `origin_label:tab_key`, curator and lector
+/// from the tab's own label), so `shell-detach:<token>` names the same tab across sessions and its
+/// stored rect is meaningful on the next pop-out. The home surface has no such identity to key on
+/// — it is a single window whose bounds every state it shows would have to share.
+///
+/// The consequence, accepted: the store gains one entry per tab ever popped out, never pruned.
+/// Ordinary windows already accumulate the same way (a title change orphans an entry), an entry is
+/// a handful of bytes, and pruning would need tab-identity knowledge this module deliberately
+/// does not have.
 fn is_excluded(state: &GeometryState, label: &str) -> bool {
-    label == crate::home::HOME_LABEL
-        || crate::detach::is_detached_label(label)
-        || state.skip.contains(label)
+    label == crate::home::HOME_LABEL || state.skip.contains(label)
 }
 
 /// A monitor's work area (screen minus menu bar and Dock) in points, converted with **that
@@ -348,7 +358,8 @@ fn flush<R: Runtime>(app: &AppHandle<R>) {
 }
 
 /// Build the geometry plugin. `filename` comes from [`geometry_filename`]; `skip_labels` are an
-/// app's own transient windows (the home and detached surfaces are excluded structurally).
+/// app's own transient windows (the home surface is excluded structurally — see [`is_excluded`],
+/// which also records why a detached-tab window is not).
 pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin<R> {
     let skip: HashSet<String> = skip_labels.iter().map(|s| s.to_string()).collect();
 
@@ -388,7 +399,10 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
             // Snapshot on move/resize so a window's bounds survive even when the window itself is
             // closed mid-session: by the time `flush` runs on `RunEvent::Exit`, a closed window is
             // gone from `app.windows()`, so without this event-driven cache its bounds would be
-            // lost entirely rather than merely stale. (The cache is memory-only and the exit-time
+            // lost entirely rather than merely stale. That is not a nicety for a detached-tab
+            // window — closing it IS how a popped-out tab redocks, so it is the *normal* path, and
+            // this handler is the only reason its remembered size survives at all.
+            // (The cache is memory-only and the exit-time
             // flush is the only write to disk, so this does *not* protect against an abnormal exit
             // or crash — only against a window closing before a normal one.) No suppression around
             // `restore` is needed: an echoed event records the geometry the window genuinely has,
@@ -593,19 +607,24 @@ mod tests {
         assert_eq!(fnv1a_64(b"foobar"), 0x8594_4171_f739_67e8);
     }
 
-    /// The one behavioural rule `is_excluded` enforces — home, detached, and caller-skip windows
-    /// never persist bounds — is exactly the kind of thing a future refactor could silently
-    /// invert with no error, just wrong windows restored next launch.
+    /// The one behavioural rule `is_excluded` enforces — home and caller-skip windows never
+    /// persist bounds, every other window does — is exactly the kind of thing a future refactor
+    /// could silently invert with no error, just wrong windows restored next launch.
+    ///
+    /// The detached case is asserted in the *negative* on purpose: a popped-out tab window
+    /// persists its size and position like any other window, keyed by its deterministic
+    /// `shell-detach:<token>` label. Re-adding it to the exclusion is the regression this
+    /// assertion exists to fail on.
     #[test]
-    fn is_excluded_covers_home_detached_and_the_skip_list_but_not_an_ordinary_window() {
+    fn is_excluded_covers_home_and_the_skip_list_but_not_an_ordinary_or_detached_window() {
         let state = GeometryState {
             filename: "test.json".to_string(),
             skip: ["sidebar".to_string()].into_iter().collect(),
             cache: Mutex::new(HashMap::new()),
         };
         assert!(is_excluded(&state, crate::home::HOME_LABEL));
-        assert!(is_excluded(&state, "shell-detach:abc123"));
         assert!(is_excluded(&state, "sidebar"));
         assert!(!is_excluded(&state, "main"));
+        assert!(!is_excluded(&state, "shell-detach:abc123"));
     }
 }
