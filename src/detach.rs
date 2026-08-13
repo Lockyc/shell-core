@@ -65,8 +65,8 @@ const DETACH_HTML: &str = include_str!("detach.html");
 ///
 /// `width`/`height` are the **first-pop-out default only**. Once this tab has been popped out and
 /// resized, [`crate::geometry`] restores its remembered size and position over them during
-/// [`open_detached`]'s `build()` — so a caller sizing its own content off these constants rather
-/// than off the built window's real `inner_size()` will get it wrong for every subsequent pop-out.
+/// [`open_detached`]'s `build()`. That is why `birth_content` is handed the window's real size —
+/// size docked content from *that*, never from these fields.
 pub struct DetachSpec {
     pub title: String,
     pub colour: Option<String>,
@@ -125,6 +125,15 @@ pub(crate) fn register_detach_protocol<R: tauri::Runtime>(
 /// rect) — on `Err`, the freshly-built window is closed and the error propagated, so a failed dock
 /// never leaves an empty banner-only window behind. On success, returns the window's label so the
 /// caller can look it up again (e.g. to call [`wire_return`]).
+///
+/// **`birth_content` is handed the window's real logical inner size, and must size its content
+/// from that rather than from the `spec` it passed in.** By the time the closure runs,
+/// [`crate::geometry`] has already restored this tab's remembered size over `spec`'s — its
+/// `on_window_ready` hook runs inside `build()` — so `spec.width`/`spec.height` describe only the
+/// never-popped-before case. Every consumer computes a birth rect for its docked content, and all
+/// three got this wrong from the constants before the size was passed in: handing over the fact
+/// beats documenting the trap, since a caller cannot use the stale value without reaching past the
+/// one it was given. Falls back to `spec`'s size if the window's geometry can't be queried.
 pub fn open_detached<R, F>(
     app: &tauri::AppHandle<R>,
     token: &str,
@@ -134,7 +143,7 @@ pub fn open_detached<R, F>(
 ) -> tauri::Result<String>
 where
     R: tauri::Runtime,
-    F: FnOnce(&tauri::WebviewWindow<R>) -> tauri::Result<()>,
+    F: FnOnce(&tauri::WebviewWindow<R>, tauri::LogicalSize<f64>) -> tauri::Result<()>,
 {
     let label = detached_label(token);
     let payload = detach_payload_json(spec, app_name);
@@ -158,7 +167,16 @@ where
             ))
             .build()?;
 
-    if let Err(e) = birth_content(&window) {
+    // The size the window ACTUALLY has, which is `spec`'s only when this tab has no remembered
+    // geometry — see this function's doc. A failed query falls back to `spec`'s size rather than
+    // erroring: a birth rect that is merely stale costs one frame (`detach.html`'s `set_hole_rect`
+    // corrects it), where refusing to dock would cost the whole pop-out.
+    let real_size = window
+        .scale_factor()
+        .and_then(|scale| window.inner_size().map(|s| s.to_logical::<f64>(scale)))
+        .unwrap_or_else(|_| tauri::LogicalSize::new(spec.width, spec.height));
+
+    if let Err(e) = birth_content(&window, real_size) {
         let _ = window.close();
         return Err(e);
     }

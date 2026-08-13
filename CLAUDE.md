@@ -218,11 +218,15 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
       launch and orphan an entry each time. Every consumer already derives it from a stable
       identity (warden hashes `origin_label:tab_key`; curator and lector hash the tab's own label),
       and each pins that determinism with its own test.
-    - **`DetachSpec`'s `width`/`height` are the first-pop-out default only.** Restore overwrites
-      them inside `open_detached`'s `build()` for any tab popped out before, so a consumer sizing
-      its docked content must read the built window's real `inner_size()` inside `birth_content`,
-      never the constants it passed in. warden hit exactly this: its reparented native surface was
-      born at the default rect and only snapped right once `detach.html` reported the true hole.
+    - **`DetachSpec`'s `width`/`height` are the first-pop-out default only** — restore overwrites
+      them inside `open_detached`'s `build()` for any tab popped out before. So `birth_content` is
+      handed the window's **real** logical inner size as its second argument, and a consumer sizes
+      its docked content from that. All three consumers computed a birth rect from the constants
+      before this, and all three were wrong the moment geometry started being remembered; handing
+      the fact over beats documenting the trap, since the stale value is now the one you'd have to
+      reach past. (The cost of getting it wrong is bounded — one frame, until `detach.html`'s
+      `set_hole_rect` reports the true hole — which is also why a failed geometry query falls back
+      to `spec`'s size rather than failing the pop-out.)
   - **A banner-only shell page** (`detach.html` — title + origin accent, no sidebar), served over
     its own custom protocol `DETACH_SCHEME`, registered on the `Builder` by
     `register_detach_protocol` (chained into `register_plugins` alongside `home`'s). Same reasoning
