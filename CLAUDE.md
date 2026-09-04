@@ -246,6 +246,18 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     `get_webview_window` lookup returns `None`, silently skipping the wiring so the tab could never
     redock (its origin row stayed stuck on the pop-in affordance). `get_window` is correct for that
     case and for warden's single-webview native-surface window alike.
+  - **`DetachSpec.panes: Vec<f64>` divides the content hole into that many vertical slices, by
+    ratio — `detach.html` slices at most 2.** Invariant: empty or length <= 1 means a single
+    hole, and the payload/call are then byte-identical to a consumer that never sets `panes` at
+    all — no `panes` key in the payload, and `detach.html` invokes `set_hole_rect { rect }` with
+    no `pane` key. That is what keeps curator and lector (which declare no panes) completely
+    unaffected, and it's the property a downstream task verifies by running them. With two
+    ratios, each slice reports its own rect via `set_hole_rect { rect, pane: i }` (0-based).
+    `panes` is deliberately generic geometry — ratios, not terminal panes — because shell-core
+    must not learn what a "split" is; that concept belongs to the consuming app, and a shared
+    core carrying an app's concept would break the flat fan-out the three cores maintain. The
+    drag divider between two panes is local, non-persisted UI state inside `detach.html` — by
+    design nothing stores its ratio, so no command/event/storage should be added for it.
   - **Dividing line — the same split as `home`: shell-core owns the surface, the app wires the
     actions.** Here that means the window shell, the label convention, and the close trigger live
     here; moving the tab's actual content (warden re-parents a native surface, curator/lector
