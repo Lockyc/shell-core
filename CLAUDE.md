@@ -261,6 +261,17 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     structurally in its own type instead of shell-core enforcing one. The drag divider between
     adjacent panes is local, non-persisted UI state inside `detach.html` — by design nothing
     stores its ratio, so no command/event/storage should be added for it.
+  - **Every box `detach.html` paints must be OPAQUE — the detached window is transparent, so an
+    unpainted box is desktop wallpaper.** `.hole` carries an always-on opaque ground
+    (`--hole-ground`), never one toggled on "is a surface live": the app's content composites
+    ABOVE this webview, so the ground is occluded whenever a surface covers the hole and covering
+    whenever one doesn't, which makes an uncovered hole unrepresentable rather than a state the
+    geometry has to get right on every transient. The `.divider` between two holes is its own box
+    over that same transparent canvas — NOT over either hole's ground — so it must never carry a
+    translucent colour; its `#393f40` is the exact composite of the `rgba(255,255,255,.18)` it
+    replaced over `--hole-ground`, so the look is preserved rather than approximated. This is the
+    same ruling warden reached for its own docked divider and pane ground; it is hole/divider
+    styling, so it stays this page's concern and teaches shell-core nothing about splits.
   - **Dividing line — the same split as `home`: shell-core owns the surface, the app wires the
     actions.** Here that means the window shell, the label convention, and the close trigger live
     here; moving the tab's actual content (warden re-parents a native surface, curator/lector

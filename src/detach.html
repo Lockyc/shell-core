@@ -7,6 +7,10 @@
       /* The window itself is transparent (set at creation, later work) — everything below the
          banner is the content hole, reported to the native layer via set_hole_rect so whatever
          the app composites there (a libghostty surface, a webview) lines up under it. */
+      /* The ONE source for the opaque "ground" colour of this page — the backstop painted
+         wherever nothing else does. Both rules that need it (`.hole` and `.divider`, below) read
+         or derive from this single declaration rather than each carrying its own literal. */
+      :root { --hole-ground: #0e1516; }
       html, body { margin: 0; height: 100%; background: transparent; font-family: -apple-system,
         BlinkMacSystemFont, system-ui, sans-serif; color: #fff; }
       /* body is a flex column so #holes gets whatever height is left below #banner's own —
@@ -29,8 +33,24 @@
          divider when the payload declares pane ratios. Each reports its OWN rect, so the
          app's native layer positions one surface per hole. */
       #holes { flex: 1; display: flex; }
-      .hole { background: transparent; }
-      .divider { width: 6px; cursor: col-resize; background: rgba(255,255,255,.18); flex: 0 0 6px; }
+      /* The GROUND is ALWAYS ON — never toggled. The window is transparent and whatever the app
+         composites into a hole sits ABOVE this webview, so a hole not covered by a live surface
+         would otherwise show the desktop wallpaper. Painting an opaque ground unconditionally
+         makes "an uncovered hole" unrepresentable rather than a state the geometry has to get
+         exactly right on every transient (a mid-drag reflow, a spawn race, content that has not
+         painted its first frame yet). It is invisible whenever a surface actually covers the
+         hole — occluded by the layer above it — and covering whenever one doesn't, by
+         construction. This stays generic: it is hole styling, which is this page's own concern;
+         it says nothing about what a consumer puts in a hole. */
+      .hole { background: var(--hole-ground); }
+      /* OPAQUE background. This 6px column is its own box painted directly on the (transparent)
+         webview canvas — it sits BETWEEN two content holes, not over either one's ground — so the
+         original rgba(255,255,255,.18) blended straight through to the desktop wallpaper behind
+         the window: 82% of the column was wallpaper. #393f40 is the exact composite of that
+         translucent white over --hole-ground, so the look is preserved rather than approximated,
+         with no transparency left to blend with anything behind it. (Same value, same reasoning,
+         as warden's own `#pane-divider` — the identical bug fixed on the docked side.) */
+      .divider { width: 6px; cursor: col-resize; background: #393f40; flex: 0 0 6px; }
     </style>
   </head>
   <body>
