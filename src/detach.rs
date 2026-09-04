@@ -72,6 +72,15 @@ pub struct DetachSpec {
     pub colour: Option<String>,
     pub width: f64,
     pub height: f64,
+    /// Pane width ratios, left-to-right, for a content hole divided into vertical slices.
+    /// Empty or a single entry = one undivided hole, and the emitted payload is then byte-
+    /// identical to the pre-panes one — which is what keeps curator and lector unchanged.
+    ///
+    /// DELIBERATELY GENERIC: this is a layout fact (how many slices, how wide), not a terminal
+    /// one. shell-core must not learn what a "split" is — the consuming app owns that concept
+    /// and supplies the ratios. A `panes: Vec<TerminalPane>`-shaped field here would be an
+    /// app concept in a shared core, which the constellation's flat fan-out rule forbids.
+    pub panes: Vec<f64>,
 }
 
 /// Build the `window.__SHELL_DETACH__` payload `detach.html` reads: a small hand-rolled JSON
@@ -85,8 +94,19 @@ fn detach_payload_json(spec: &DetachSpec, app_name: &str) -> String {
         Some(c) => format!("\"{}\"", crate::home::js_string_escape(c)),
         None => "null".to_string(),
     };
+    let panes = if spec.panes.len() > 1 {
+        let list = spec
+            .panes
+            .iter()
+            .map(|r| format!("{r}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(",\"panes\":[{list}]")
+    } else {
+        String::new()
+    };
     format!(
-        "{{\"appName\":\"{}\",\"title\":\"{}\",\"colour\":{colour}}}",
+        "{{\"appName\":\"{}\",\"title\":\"{}\",\"colour\":{colour}{panes}}}",
         crate::home::js_string_escape(app_name),
         crate::home::js_string_escape(&spec.title),
     )
@@ -252,6 +272,7 @@ mod tests {
                 colour: Some("#fff".into()),
                 width: 800.0,
                 height: 600.0,
+                panes: vec![],
             },
             "warden",
         );
@@ -268,9 +289,39 @@ mod tests {
                 colour: None,
                 width: 1.0,
                 height: 1.0,
+                panes: vec![],
             },
             "lector",
         );
         assert!(s.contains("\"colour\":null"));
+    }
+
+    #[test]
+    fn payload_omits_panes_when_single_hole() {
+        let spec = DetachSpec {
+            title: "t".into(),
+            colour: None,
+            width: 800.0,
+            height: 600.0,
+            panes: vec![],
+        };
+        let json = detach_payload_json(&spec, "warden");
+        assert!(
+            !json.contains("\"panes\""),
+            "single-hole payload must not carry panes: {json}"
+        );
+    }
+
+    #[test]
+    fn payload_carries_panes_when_split() {
+        let spec = DetachSpec {
+            title: "t".into(),
+            colour: None,
+            width: 800.0,
+            height: 600.0,
+            panes: vec![0.3, 0.7],
+        };
+        let json = detach_payload_json(&spec, "warden");
+        assert!(json.contains("\"panes\":[0.3,0.7]"), "got: {json}");
     }
 }

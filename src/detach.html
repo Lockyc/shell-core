@@ -21,12 +21,19 @@
         -webkit-user-select: none; }
       #title { font-size: .8rem; font-weight: 700; letter-spacing: .01em; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap; }
+      /* The content hole below the banner. One `.hole` when undivided; two plus a drag
+         divider when the payload declares pane ratios. Each reports its OWN rect, so the
+         app's native layer positions one surface per hole. */
+      #holes { display: flex; height: calc(100% - 2.25rem); }
+      .hole { background: transparent; }
+      #divider { width: 6px; cursor: col-resize; background: rgba(255,255,255,.18); flex: 0 0 6px; }
     </style>
   </head>
   <body>
     <div id="banner" data-tauri-drag-region>
       <span id="title"></span>
     </div>
+    <div id="holes"></div>
     <script>
       const banner = document.getElementById('banner');
       const titleEl = document.getElementById('title');
@@ -39,21 +46,65 @@
       titleEl.textContent = payload.title || '';
       if (payload.colour) banner.style.setProperty('--accent', payload.colour);
 
-      // Report the content hole (everything below the banner) to the app's native layer, on load
-      // + resize — the exact `set_hole_rect` shape warden's/curator's/lector's own controllers
-      // already invoke for their own content holes. Guarded so this page can also be opened
-      // standalone (no window.__TAURI__) for visual inspection.
+      // Ratios come from the payload; absent/short means one undivided hole, which is the
+      // pre-panes behaviour exactly — same single `set_hole_rect { rect }` call, no `pane`
+      // key — so a consumer that declares no panes is unaffected by this file changing.
+      const ratios = Array.isArray(payload.panes) && payload.panes.length > 1
+        ? payload.panes.slice(0, 2)
+        : [1];
+
+      const holesEl = document.getElementById('holes');
+      const holeEls = [];
+      ratios.forEach((r, i) => {
+        if (i > 0) {
+          const d = document.createElement('div');
+          d.id = 'divider';
+          holesEl.appendChild(d);
+        }
+        const el = document.createElement('div');
+        el.className = 'hole';
+        el.style.flex = `${r} 1 0`;
+        holesEl.appendChild(el);
+        holeEls.push(el);
+      });
+
       function reportRect() {
         if (!window.__TAURI__) return;
-        const bannerHeight = banner.getBoundingClientRect().height;
-        const rect = {
-          x: 0,
-          y: bannerHeight,
-          width: window.innerWidth,
-          height: Math.max(0, window.innerHeight - bannerHeight),
-        };
-        window.__TAURI__.core.invoke('set_hole_rect', { rect }).catch((err) => {
-          console.error('shell-detach: set_hole_rect failed', err);
+        holeEls.forEach((el, i) => {
+          const r = el.getBoundingClientRect();
+          const rect = { x: r.x, y: r.y, width: r.width, height: r.height };
+          // Single hole: omit `pane` entirely, so the invoked command shape is unchanged
+          // for consumers that never split.
+          const args = holeEls.length > 1 ? { rect, pane: i } : { rect };
+          window.__TAURI__.core.invoke('set_hole_rect', args).catch((err) => {
+            console.error('shell-detach: set_hole_rect failed', err);
+          });
+        });
+      }
+
+      // Local, non-persisted divider drag. Nothing stores this ratio: the detached window is
+      // transient and its own label is not the origin tab's persistence key, so persisting
+      // here would need a second key space for no gain.
+      const divider = document.getElementById('divider');
+      if (divider) {
+        divider.addEventListener('mousedown', (down) => {
+          down.preventDefault();
+          const startX = down.clientX;
+          const total = holesEl.getBoundingClientRect().width;
+          const startFlex = parseFloat(holeEls[0].style.flex) || 0.5;
+          const onMove = (mv) => {
+            const delta = (mv.clientX - startX) / Math.max(1, total);
+            const next = Math.min(0.9, Math.max(0.1, startFlex + delta));
+            holeEls[0].style.flex = `${next} 1 0`;
+            holeEls[1].style.flex = `${1 - next} 1 0`;
+            reportRect();
+          };
+          const onUp = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
         });
       }
 
