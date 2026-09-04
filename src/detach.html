@@ -9,6 +9,10 @@
          the app composites there (a libghostty surface, a webview) lines up under it. */
       html, body { margin: 0; height: 100%; background: transparent; font-family: -apple-system,
         BlinkMacSystemFont, system-ui, sans-serif; color: #fff; }
+      /* body is a flex column so #holes gets whatever height is left below #banner's own —
+         never a restated `calc(100% - <banner height>)` literal that would silently drift the
+         moment the banner's height changes. */
+      body { display: flex; flex-direction: column; }
       /* The banner IS the origin window's accent colour — the same treatment chrome-core gives
          its `#cc-banner` (`this.banner.style.background = windowColour`), so a popped-out window
          reads as belonging to the window it came from. Neutral grey fallback (chrome-core's own
@@ -24,7 +28,7 @@
       /* The content hole below the banner. One `.hole` when undivided; two plus a drag
          divider when the payload declares pane ratios. Each reports its OWN rect, so the
          app's native layer positions one surface per hole. */
-      #holes { display: flex; height: calc(100% - 2.25rem); }
+      #holes { flex: 1; display: flex; }
       .hole { background: transparent; }
       #divider { width: 6px; cursor: col-resize; background: rgba(255,255,255,.18); flex: 0 0 6px; }
     </style>
@@ -49,8 +53,11 @@
       // Ratios come from the payload; absent/short means one undivided hole, which is the
       // pre-panes behaviour exactly — same single `set_hole_rect { rect }` call, no `pane`
       // key — so a consumer that declares no panes is unaffected by this file changing.
+      // No cap here: how many panes is a consuming-app concept (warden's own type caps it at
+      // 2), and shell-core must not learn what a "split" is — it lays out whatever ratios
+      // arrive.
       const ratios = Array.isArray(payload.panes) && payload.panes.length > 1
-        ? payload.panes.slice(0, 2)
+        ? payload.panes
         : [1];
 
       const holesEl = document.getElementById('holes');
