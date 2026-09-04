@@ -30,7 +30,7 @@
          app's native layer positions one surface per hole. */
       #holes { flex: 1; display: flex; }
       .hole { background: transparent; }
-      #divider { width: 6px; cursor: col-resize; background: rgba(255,255,255,.18); flex: 0 0 6px; }
+      .divider { width: 6px; cursor: col-resize; background: rgba(255,255,255,.18); flex: 0 0 6px; }
     </style>
   </head>
   <body>
@@ -62,10 +62,55 @@
 
       const holesEl = document.getElementById('holes');
       const holeEls = [];
+
+      // Local, non-persisted divider drag. Nothing stores this ratio: the detached window is
+      // transient and its own label is not the origin tab's persistence key, so persisting
+      // here would need a second key space for no gain.
+      //
+      // Wired per divider, closing over the boundary index `i` it sits at (between holeEls[i-1]
+      // and holeEls[i]) — not a hardcoded pair — so this generalises to however many panes
+      // arrive rather than assuming exactly two. Every element on this page gets its own class,
+      // never a shared `id`: a duplicated id is invalid HTML, and `getElementById` is defined to
+      // return only the first match, which would leave every divider past the first rendered
+      // but inert.
+      function wireDivider(el, i) {
+        el.addEventListener('mousedown', (down) => {
+          down.preventDefault();
+          const left = holeEls[i - 1];
+          const right = holeEls[i];
+          const startX = down.clientX;
+          // The dragged PAIR's own combined width, not the whole #holes width — so 1px of
+          // mouse movement moves the boundary by 1px regardless of how many other panes are
+          // laid out alongside it.
+          const total = left.getBoundingClientRect().width + right.getBoundingClientRect().width;
+          const leftFlex = parseFloat(left.style.flex) || 0.5;
+          const rightFlex = parseFloat(right.style.flex) || 0.5;
+          // Redistribute only the flex budget this pair already holds between the two of them —
+          // every other pane's flex is untouched, so a drag never disturbs a boundary it wasn't
+          // grabbed at.
+          const pairFlex = leftFlex + rightFlex;
+          const startShare = pairFlex > 0 ? leftFlex / pairFlex : 0.5;
+          const onMove = (mv) => {
+            const delta = (mv.clientX - startX) / Math.max(1, total);
+            const nextShare = Math.min(0.9, Math.max(0.1, startShare + delta));
+            left.style.flex = `${nextShare * pairFlex} 1 0`;
+            right.style.flex = `${(1 - nextShare) * pairFlex} 1 0`;
+            reportRect();
+          };
+          const onUp = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+      }
+
       ratios.forEach((r, i) => {
         if (i > 0) {
           const d = document.createElement('div');
-          d.id = 'divider';
+          d.className = 'divider';
+          wireDivider(d, i);
           holesEl.appendChild(d);
         }
         const el = document.createElement('div');
@@ -86,32 +131,6 @@
           window.__TAURI__.core.invoke('set_hole_rect', args).catch((err) => {
             console.error('shell-detach: set_hole_rect failed', err);
           });
-        });
-      }
-
-      // Local, non-persisted divider drag. Nothing stores this ratio: the detached window is
-      // transient and its own label is not the origin tab's persistence key, so persisting
-      // here would need a second key space for no gain.
-      const divider = document.getElementById('divider');
-      if (divider) {
-        divider.addEventListener('mousedown', (down) => {
-          down.preventDefault();
-          const startX = down.clientX;
-          const total = holesEl.getBoundingClientRect().width;
-          const startFlex = parseFloat(holeEls[0].style.flex) || 0.5;
-          const onMove = (mv) => {
-            const delta = (mv.clientX - startX) / Math.max(1, total);
-            const next = Math.min(0.9, Math.max(0.1, startFlex + delta));
-            holeEls[0].style.flex = `${next} 1 0`;
-            holeEls[1].style.flex = `${1 - next} 1 0`;
-            reportRect();
-          };
-          const onUp = () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-          };
-          window.addEventListener('mousemove', onMove);
-          window.addEventListener('mouseup', onUp);
         });
       }
 
