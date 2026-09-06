@@ -52,20 +52,20 @@
          consumer composites into the hole never paints over it, and the `.hole` ground paints
          under the border so the ring is never a transparent gap. */
       #holes.multi .hole.focused { border-color: #4aa3e0; }
-      /* OPAQUE background. This 6px column is its own box painted directly on the (transparent)
-         webview canvas — it sits BETWEEN two content holes, not over either one's ground — so the
-         original rgba(255,255,255,.18) blended straight through to the desktop wallpaper behind
-         the window: 82% of the column was wallpaper. #393f40 is the exact composite of that
-         translucent white over --hole-ground, so the look is preserved rather than approximated,
-         with no transparency left to blend with anything behind it. (Same value, same reasoning,
-         as warden's own `#pane-divider` — the identical bug fixed on the docked side.) */
-      .divider { width: 6px; cursor: col-resize; background: #393f40; flex: 0 0 6px;
-        display: flex; align-items: center; justify-content: center; }
-      /* The close control rides the divider, so it is always visible without floating over
-         hole content — the same element, look and placement as warden's docked `#pane-close`. */
-      .hole-close { width: 14px; height: 14px; line-height: 14px; text-align: center;
-        font-size: 10px; border-radius: 3px; background: rgba(0,0,0,.45); color: #fff;
-        cursor: pointer; user-select: none; -webkit-user-select: none; }
+      /* The divider is a 1px line inside a 5px grab strip: 2px of hole ground either side of
+         the line, all OPAQUE. This column is its own box painted directly on the (transparent)
+         webview canvas — it sits BETWEEN two content holes, not over either one's ground — so a
+         translucent colour here blends straight through to the desktop wallpaper behind the
+         window (the original rgba(255,255,255,.18) was 82% wallpaper). The strip's ground is
+         `--hole-ground` (the holes' own colour, so the strip reads as part of the gap between
+         two terminals, not a bar) and the line is #393f40, the exact composite of that
+         translucent white over --hole-ground. The strip is wider than the line because a 1px
+         target cannot be grabbed; the extra width is invisible by construction. No close
+         control rides it — a hole is retired by its own content ending (the consumer's call),
+         never from this page. (Same values, same reasoning, as warden's own `#pane-divider`.) */
+      .divider { width: 5px; flex: 0 0 5px; cursor: col-resize;
+        background: linear-gradient(to right, var(--hole-ground) 2px, #393f40 2px, #393f40 3px,
+          var(--hole-ground) 3px); }
     </style>
   </head>
   <body>
@@ -110,7 +110,6 @@
       // but inert.
       function wireDivider(el, i) {
         el.addEventListener('mousedown', (down) => {
-          if (down.target.closest('.hole-close')) return; // the close control has its own handler
           down.preventDefault();
           const left = holeEls[i - 1];
           const right = holeEls[i];
@@ -148,9 +147,9 @@
       // layout it would have opened with — one undivided hole for a single ratio, which then
       // reports itself with no `pane` key exactly like a window that never had panes.
       //
-      // With 2+ holes each divider carries a close control: clicking it invokes the consumer's
-      // `close_hole { pane: i }` — hole `i` is the one to the divider's right — the same
-      // consumer-implemented-command contract as `set_hole_rect`. Never invoked with one hole.
+      // With 2+ holes a drag divider sits between each adjacent pair — a resize handle only.
+      // Nothing on this page retires a hole: a slice vanishes when the consumer's content in it
+      // ends and the consumer calls `set_panes` with the survivors.
       // The first hole starts `.focused` (the consumers' own default), and `shell-detach:focus`
       // (`set_focused_hole`) moves it.
       function layout(ratios) {
@@ -161,18 +160,6 @@
           if (i > 0) {
             const d = document.createElement('div');
             d.className = 'divider';
-            const x = document.createElement('div');
-            x.className = 'hole-close';
-            x.title = 'Close';
-            x.textContent = '\u2715';
-            x.addEventListener('click', (e) => {
-              e.stopPropagation();
-              if (!window.__TAURI__) return;
-              window.__TAURI__.core.invoke('close_hole', { pane: i }).catch((err) => {
-                console.error('shell-detach: close_hole failed', err);
-              });
-            });
-            d.appendChild(x);
             wireDivider(d, i);
             holesEl.appendChild(d);
           }

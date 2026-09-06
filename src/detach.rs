@@ -13,8 +13,8 @@
 //!   slim identity banner (title + accent stripe) a detached window shows above its transparent
 //!   content hole, reporting that hole's rect to the app via `set_hole_rect` — every app already
 //!   exposes that command identically. Divided into holes (`DetachSpec::panes`, [`set_panes`]) it
-//!   carries the docked pane chrome too — drag dividers with a close control (`close_hole`) and a
-//!   focus ring ([`set_focused_hole`]) — so a popped-out tab looks and works as it did docked.
+//!   carries the docked pane chrome too — 1px drag dividers and a focus ring
+//!   ([`set_focused_hole`]) — so a popped-out tab looks and works as it did docked.
 //!
 //! Touches no config-core symbol — the cores stay mutually independent.
 
@@ -169,13 +169,6 @@ pub fn set_panes<R: tauri::Runtime>(
 /// page moves its accent focus ring to that hole (meaningful only with 2+ holes; the first hole
 /// starts focused on every layout, matching the consumers' own default).
 pub const FOCUS_EVENT: &str = "shell-detach:focus";
-
-/// The command the page invokes when the close control on a divider is clicked:
-/// `close_hole { pane: i }`, asking the consumer to retire hole `i` (the one to the divider's
-/// right) — consumer-implemented, exactly like `set_hole_rect`, and only ever invoked when the
-/// page has 2+ holes, so a consumer that never divides its hole never has to implement it. The
-/// consumer answers by retiring its content and calling [`set_panes`] with the surviving ratios.
-pub const CLOSE_HOLE_COMMAND: &str = "close_hole";
 
 /// Move a live detached window's focus ring to hole `pane` — the consumer reports which hole
 /// is typing (it alone knows: a native surface's first-responder change never reaches this

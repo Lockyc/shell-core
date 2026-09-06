@@ -206,7 +206,7 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     open tab, so this costs nothing new downstream.
 - **The detach surface** (`detach::{DETACH_LABEL_PREFIX, detached_label, is_detached_label,
   detach_token, DetachSpec, open_detached, wire_return, set_panes, set_focused_hole, PANES_EVENT,
-  FOCUS_EVENT, CLOSE_HOLE_COMMAND}`, `runtime` feature) — the "pop a tab out
+  FOCUS_EVENT}`, `runtime` feature) — the "pop a tab out
   into its own temporary window" lifecycle, consumed by warden/curator/lector alike. It owns two
   things:
   - **A reserved label scheme.** `DETACH_LABEL_PREFIX = "shell-detach:"` + `detached_label(token)`
@@ -257,12 +257,12 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     relays out from, one hole for a single ratio); the consumer retires what it composited into a
     vanished slice *before* calling it, since the page re-reports the survivors at once.
     **A divided hole carries the docked pane chrome, so a popped-out tab is the same UI it was
-    docked**: each divider drags and carries a close control that invokes the consumer's
-    `close_hole { pane }` (`CLOSE_HOLE_COMMAND` — consumer-implemented like `set_hole_rect`, never
-    invoked with one hole, answered with `set_panes`), and a 1px accent focus ring sits on the
+    docked**: each divider is a 1px line in a 5px grab strip that drags (a resize handle only —
+    the page carries no close control, so a hole is retired only by its content ending and the
+    consumer calling `set_panes` with the survivors), and a 1px accent focus ring sits on the
     typing hole (`set_focused_hole` → `FOCUS_EVENT`; the first hole starts focused). Rects are
     reported as the CONTENT box inside that border, so composited content never covers the ring.
-    The look (ground, divider, close pill, accent) is the same values warden's docked page uses —
+    The look (ground, divider, accent) is the same values warden's docked page uses —
     a required duplication across two pages, not one to "unify" by teaching shell-core a split. That is what keeps
     curator and lector (which declare no panes) completely unaffected, and it's the property a
     downstream task verifies by running them. With more than one ratio, each slice reports its
@@ -281,8 +281,8 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     whenever one doesn't, which makes an uncovered hole unrepresentable rather than a state the
     geometry has to get right on every transient. The `.divider` between two holes is its own box
     over that same transparent canvas — NOT over either hole's ground — so it must never carry a
-    translucent colour; its `#393f40` is the exact composite of the `rgba(255,255,255,.18)` it
-    replaced over `--hole-ground`, so the look is preserved rather than approximated. This is the
+    translucent colour: the strip's ground is `--hole-ground` and its 1px line `#393f40`, the exact
+    composite of the `rgba(255,255,255,.18)` it replaced over `--hole-ground`. This is the
     same ruling warden reached for its own docked divider and pane ground; it is hole/divider
     styling, so it stays this page's concern and teaches shell-core nothing about splits.
   - **Dividing line — the same split as `home`: shell-core owns the surface, the app wires the
