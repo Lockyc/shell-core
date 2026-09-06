@@ -76,11 +76,11 @@
       // No cap here: how many panes is a consuming-app concept (warden's own type caps it at
       // 2), and shell-core must not learn what a "split" is — it lays out whatever ratios
       // arrive.
-      const ratios = Array.isArray(payload.panes) && payload.panes.length > 1
-        ? payload.panes
-        : [1];
+      const toRatios = (panes) => (Array.isArray(panes) && panes.length > 1 ? panes : [1]);
 
       const holesEl = document.getElementById('holes');
+      // Mutated in place by layout() — every divider handler closes over THIS array, so a
+      // relayout must not rebind it.
       const holeEls = [];
 
       // Local, non-persisted divider drag. Nothing stores this ratio: the detached window is
@@ -126,19 +126,29 @@
         });
       }
 
-      ratios.forEach((r, i) => {
-        if (i > 0) {
-          const d = document.createElement('div');
-          d.className = 'divider';
-          wireDivider(d, i);
-          holesEl.appendChild(d);
-        }
-        const el = document.createElement('div');
-        el.className = 'hole';
-        el.style.flex = `${r} 1 0`;
-        holesEl.appendChild(el);
-        holeEls.push(el);
-      });
+      // Lay the holes out from `ratios`, discarding whatever was there. Used once at load from
+      // the payload and again for every `shell-detach:panes` event (`set_panes` on the Rust
+      // side), so a consumer whose slice count changes while the window is up gets the same
+      // layout it would have opened with — one undivided hole for a single ratio, which then
+      // reports itself with no `pane` key exactly like a window that never had panes.
+      function layout(ratios) {
+        holesEl.replaceChildren();
+        holeEls.length = 0;
+        ratios.forEach((r, i) => {
+          if (i > 0) {
+            const d = document.createElement('div');
+            d.className = 'divider';
+            wireDivider(d, i);
+            holesEl.appendChild(d);
+          }
+          const el = document.createElement('div');
+          el.className = 'hole';
+          el.style.flex = `${r} 1 0`;
+          holesEl.appendChild(el);
+          holeEls.push(el);
+        });
+        reportRect();
+      }
 
       function reportRect() {
         if (!window.__TAURI__) return;
@@ -154,8 +164,18 @@
         });
       }
 
-      reportRect();
+      layout(toRatios(payload.panes));
       window.addEventListener('resize', reportRect);
+
+      // Runtime relayout (`set_panes`). `emit_to` reaches every webview, so the payload is
+      // stamped with the target window's label and this page keeps only its own.
+      if (window.__TAURI__ && window.__TAURI__.event) {
+        window.__TAURI__.event.listen('shell-detach:panes', (e) => {
+          const p = e.payload || {};
+          if (p.label && payload.label && p.label !== payload.label) return;
+          layout(toRatios(p.panes));
+        });
+      }
     </script>
   </body>
 </html>

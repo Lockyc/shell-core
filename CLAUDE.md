@@ -205,7 +205,7 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     own `tauri` dependency, since curator's and lector's content webviews `add_child` a webview per
     open tab, so this costs nothing new downstream.
 - **The detach surface** (`detach::{DETACH_LABEL_PREFIX, detached_label, is_detached_label,
-  detach_token, DetachSpec, open_detached, wire_return}`, `runtime` feature) — the "pop a tab out
+  detach_token, DetachSpec, open_detached, wire_return, set_panes, PANES_EVENT}`, `runtime` feature) — the "pop a tab out
   into its own temporary window" lifecycle, consumed by warden/curator/lector alike. It owns two
   things:
   - **A reserved label scheme.** `DETACH_LABEL_PREFIX = "shell-detach:"` + `detached_label(token)`
@@ -249,8 +249,12 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   - **`DetachSpec.panes: Vec<f64>` divides the content hole into that many vertical slices, by
     ratio — `detach.html` lays out however many ratios arrive, with no cap of its own.**
     Invariant: empty or length <= 1 means a single hole, and the payload/call are then
-    byte-identical to a consumer that never sets `panes` at all — no `panes` key in the payload,
-    and `detach.html` invokes `set_hole_rect { rect }` with no `pane` key. That is what keeps
+    the same as for a consumer that never sets `panes` at all — no `panes` key in the payload,
+    and `detach.html` invokes `set_hole_rect { rect }` with no `pane` key. **`set_panes(app,
+    label, ratios)` re-divides a live window the same way after it opened** (emits `PANES_EVENT`,
+    which the page filters on its own label — the payload carries `label` for exactly this — and
+    relays out from, one hole for a single ratio); the consumer retires what it composited into a
+    vanished slice *before* calling it, since the page re-reports the survivors at once. That is what keeps
     curator and lector (which declare no panes) completely unaffected, and it's the property a
     downstream task verifies by running them. With more than one ratio, each slice reports its
     own rect via `set_hole_rect { rect, pane: i }` (0-based). `panes` is deliberately generic
