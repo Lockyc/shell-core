@@ -259,8 +259,10 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     **A divided hole carries the docked pane chrome, so a popped-out tab is the same UI it was
     docked**: each divider is a 1px line in a 5px grab strip that drags (a resize handle only —
     the page carries no close control, so a hole is retired only by its content ending and the
-    consumer calling `set_panes` with the survivors), and a 1px accent focus ring sits on the
-    typing hole (`set_focused_hole` → `FOCUS_EVENT`; the first hole starts focused). Rects are
+    consumer calling `set_panes` with the survivors), and a 1px focus ring — the window's own
+    hue lifted to an electric saturation/lightness (`--ring`, relative colour syntax in
+    `detach.html`) with a 6px halo that shows in the divider strip — sits on the typing hole
+    (`set_focused_hole` → `FOCUS_EVENT`; the first hole starts focused). Rects are
     reported as the CONTENT box inside that border, so composited content never covers the ring.
     The look (ground, divider, accent) is the same values warden's docked page uses —
     a required duplication across two pages, not one to "unify" by teaching shell-core a split. That is what keeps
