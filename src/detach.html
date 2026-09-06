@@ -46,12 +46,31 @@
       /* Hole chrome that matches a consumer's DOCKED pane chrome — a popped-out tab must look
          and work exactly as it did docked. The 1px border is always present (transparent by
          default), so focusing never shifts layout: only its colour changes. `.focused` paints
-         the accent (#4aa3e0 — chrome-core's active-row accent, the one accent colour every
-         consumer shares) and means nothing with a single hole, hence the `#holes.multi` gate.
+         the ring and means nothing with a single hole, hence the `#holes.multi` gate.
          The ring sits OUTSIDE the reported content box (see contentRect), so whatever the
          consumer composites into the hole never paints over it, and the `.hole` ground paints
-         under the border so the ring is never a transparent gap. */
-      #holes.multi .hole.focused { border-color: #4aa3e0; }
+         under the border so the ring is never a transparent gap.
+
+         The ring colour is the origin window's accent (`--accent`, set on the root from the
+         payload) pushed to an "electric" register with relative colour syntax: the window's
+         own HUE, saturation floored at 85 and lightness pinned at 62, so a dark navy window
+         rings electric blue and a forest green rings neon green — the pane belongs to its
+         window at a glance, and the ring still pops against the dark ground whatever the user
+         picked. The neutral no-colour fallback (chrome-core's `NEUTRAL_COLOUR` slate, hue ≈220)
+         resolves to an electric blue, so a colourless window gets a ring, not grey. Same
+         formula, same reasoning, as warden's `.pane.focused` — the two rules must stay
+         identical, the way the two dividers do.
+
+         The halo (`box-shadow`) is the "electric" glow. Whatever the consumer composites into
+         the hole sits ABOVE this webview and covers the content box, so an INSET glow would be
+         invisible; an OUTER one shows in the divider strip between the holes — exactly where
+         the eye looks to answer "which one is typing". `z-index: 1` paints it over the divider
+         (a later sibling of the first hole), and `#holes` clips it so it never spills past the
+         hole edges onto the transparent canvas or under the banner. */
+      #holes { overflow: hidden; }
+      #holes.multi .hole.focused { position: relative; z-index: 1;
+        --ring: hsl(from var(--accent, #6b7280) h calc(max(s, 85)) 62);
+        border-color: var(--ring); box-shadow: 0 0 6px var(--ring); }
       /* The divider is a 1px line inside a 5px grab strip: 2px of hole ground either side of
          the line, all OPAQUE. This column is its own box painted directly on the (transparent)
          webview canvas — it sits BETWEEN two content holes, not over either one's ground — so a
@@ -74,7 +93,6 @@
     </div>
     <div id="holes"></div>
     <script>
-      const banner = document.getElementById('banner');
       const titleEl = document.getElementById('title');
 
       const payload = window.__SHELL_DETACH__
@@ -83,7 +101,9 @@
 
       document.title = payload.title || payload.appName || '';
       titleEl.textContent = payload.title || '';
-      if (payload.colour) banner.style.setProperty('--accent', payload.colour);
+      // On the ROOT, not the banner: the banner paints it, and so does the focus ring on a
+      // `.hole` (a sibling of the banner, which could never inherit a banner-scoped value).
+      if (payload.colour) document.documentElement.style.setProperty('--accent', payload.colour);
 
       // Ratios come from the payload; absent/short means one undivided hole, which is the
       // pre-panes behaviour exactly — same single `set_hole_rect { rect }` call, no `pane`
