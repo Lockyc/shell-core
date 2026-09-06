@@ -42,7 +42,16 @@
          hole — occluded by the layer above it — and covering whenever one doesn't, by
          construction. This stays generic: it is hole styling, which is this page's own concern;
          it says nothing about what a consumer puts in a hole. */
-      .hole { background: var(--hole-ground); }
+      .hole { background: var(--hole-ground); box-sizing: border-box; border: 1px solid transparent; }
+      /* Hole chrome that matches a consumer's DOCKED pane chrome — a popped-out tab must look
+         and work exactly as it did docked. The 1px border is always present (transparent by
+         default), so focusing never shifts layout: only its colour changes. `.focused` paints
+         the accent (#4aa3e0 — chrome-core's active-row accent, the one accent colour every
+         consumer shares) and means nothing with a single hole, hence the `#holes.multi` gate.
+         The ring sits OUTSIDE the reported content box (see contentRect), so whatever the
+         consumer composites into the hole never paints over it, and the `.hole` ground paints
+         under the border so the ring is never a transparent gap. */
+      #holes.multi .hole.focused { border-color: #4aa3e0; }
       /* OPAQUE background. This 6px column is its own box painted directly on the (transparent)
          webview canvas — it sits BETWEEN two content holes, not over either one's ground — so the
          original rgba(255,255,255,.18) blended straight through to the desktop wallpaper behind
@@ -50,7 +59,13 @@
          translucent white over --hole-ground, so the look is preserved rather than approximated,
          with no transparency left to blend with anything behind it. (Same value, same reasoning,
          as warden's own `#pane-divider` — the identical bug fixed on the docked side.) */
-      .divider { width: 6px; cursor: col-resize; background: #393f40; flex: 0 0 6px; }
+      .divider { width: 6px; cursor: col-resize; background: #393f40; flex: 0 0 6px;
+        display: flex; align-items: center; justify-content: center; }
+      /* The close control rides the divider, so it is always visible without floating over
+         hole content — the same element, look and placement as warden's docked `#pane-close`. */
+      .hole-close { width: 14px; height: 14px; line-height: 14px; text-align: center;
+        font-size: 10px; border-radius: 3px; background: rgba(0,0,0,.45); color: #fff;
+        cursor: pointer; user-select: none; -webkit-user-select: none; }
     </style>
   </head>
   <body>
@@ -95,6 +110,7 @@
       // but inert.
       function wireDivider(el, i) {
         el.addEventListener('mousedown', (down) => {
+          if (down.target.closest('.hole-close')) return; // the close control has its own handler
           down.preventDefault();
           const left = holeEls[i - 1];
           const right = holeEls[i];
@@ -131,18 +147,37 @@
       // side), so a consumer whose slice count changes while the window is up gets the same
       // layout it would have opened with — one undivided hole for a single ratio, which then
       // reports itself with no `pane` key exactly like a window that never had panes.
+      //
+      // With 2+ holes each divider carries a close control: clicking it invokes the consumer's
+      // `close_hole { pane: i }` — hole `i` is the one to the divider's right — the same
+      // consumer-implemented-command contract as `set_hole_rect`. Never invoked with one hole.
+      // The first hole starts `.focused` (the consumers' own default), and `shell-detach:focus`
+      // (`set_focused_hole`) moves it.
       function layout(ratios) {
         holesEl.replaceChildren();
         holeEls.length = 0;
+        holesEl.classList.toggle('multi', ratios.length > 1);
         ratios.forEach((r, i) => {
           if (i > 0) {
             const d = document.createElement('div');
             d.className = 'divider';
+            const x = document.createElement('div');
+            x.className = 'hole-close';
+            x.title = 'Close';
+            x.textContent = '\u2715';
+            x.addEventListener('click', (e) => {
+              e.stopPropagation();
+              if (!window.__TAURI__) return;
+              window.__TAURI__.core.invoke('close_hole', { pane: i }).catch((err) => {
+                console.error('shell-detach: close_hole failed', err);
+              });
+            });
+            d.appendChild(x);
             wireDivider(d, i);
             holesEl.appendChild(d);
           }
           const el = document.createElement('div');
-          el.className = 'hole';
+          el.className = 'hole' + (i === 0 ? ' focused' : '');
           el.style.flex = `${r} 1 0`;
           holesEl.appendChild(el);
           holeEls.push(el);
@@ -150,11 +185,24 @@
         reportRect();
       }
 
+      // The CONTENT box, inset by the hole's computed border: what the consumer composites
+      // into the hole is sized to exactly this, so it never covers the focus ring. Read the
+      // actual border width rather than restating "1px" so this can't drift from the CSS.
+      function contentRect(el) {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const bl = parseFloat(cs.borderLeftWidth) || 0;
+        const bt = parseFloat(cs.borderTopWidth) || 0;
+        const br = parseFloat(cs.borderRightWidth) || 0;
+        const bb = parseFloat(cs.borderBottomWidth) || 0;
+        return { x: r.x + bl, y: r.y + bt,
+          width: Math.max(0, r.width - bl - br), height: Math.max(0, r.height - bt - bb) };
+      }
+
       function reportRect() {
         if (!window.__TAURI__) return;
         holeEls.forEach((el, i) => {
-          const r = el.getBoundingClientRect();
-          const rect = { x: r.x, y: r.y, width: r.width, height: r.height };
+          const rect = contentRect(el);
           // Single hole: omit `pane` entirely, so the invoked command shape is unchanged
           // for consumers that never split.
           const args = holeEls.length > 1 ? { rect, pane: i } : { rect };
@@ -174,6 +222,12 @@
           const p = e.payload || {};
           if (p.label && payload.label && p.label !== payload.label) return;
           layout(toRatios(p.panes));
+        });
+        // Which hole is typing (`set_focused_hole`) — moves the accent ring. Same stamping.
+        window.__TAURI__.event.listen('shell-detach:focus', (e) => {
+          const p = e.payload || {};
+          if (p.label && payload.label && p.label !== payload.label) return;
+          holeEls.forEach((el, i) => el.classList.toggle('focused', i === p.pane));
         });
       }
     </script>
