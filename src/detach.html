@@ -11,6 +11,14 @@
          wherever nothing else does. Both rules that need it (`.hole` and `.divider`, below) read
          or derive from this single declaration rather than each carrying its own literal. */
       :root { --hole-ground: #0e1516; }
+      /* A hole's corner radius = the WINDOW's own corner radius (16pt, measured on macOS 26),
+         so a hole at the window's edge curves with the window instead of its ring running
+         square into a corner the window has already rounded off. All four corners, so a hole
+         reads as one rounded card whatever side of a divider it sits. Mirrors warden's
+         `--pane-radius` (its docked page), and the consumer's composited content must carry
+         the concentric inner radius itself (warden: `SURFACE_CORNER_RADIUS`) or its square
+         corners paint over the ring's curve; change them together. */
+      :root { --hole-radius: 16px; }
       html, body { margin: 0; height: 100%; background: transparent; font-family: -apple-system,
         BlinkMacSystemFont, system-ui, sans-serif; color: #fff; }
       /* body is a flex column so #holes gets whatever height is left below #banner's own —
@@ -32,7 +40,11 @@
       /* The content hole below the banner. One `.hole` when undivided; two plus a drag
          divider when the payload declares pane ratios. Each reports its OWN rect, so the
          app's native layer positions one surface per hole. */
-      #holes { flex: 1; display: flex; }
+      /* `#holes` paints the ground itself: the holes are rounded (`--hole-radius`), so the notch
+         outside each corner is this container's own canvas — transparent, it would be four
+         slivers of wallpaper per hole. Same always-on-ground ruling as `.hole`, one box further
+         out. `overflow: hidden` clips the focused hole's halo — see `.hole.focused`. */
+      #holes { flex: 1; display: flex; background: var(--hole-ground); overflow: hidden; }
       /* The GROUND is ALWAYS ON — never toggled. The window is transparent and whatever the app
          composites into a hole sits ABOVE this webview, so a hole not covered by a live surface
          would otherwise show the desktop wallpaper. Painting an opaque ground unconditionally
@@ -42,7 +54,8 @@
          hole — occluded by the layer above it — and covering whenever one doesn't, by
          construction. This stays generic: it is hole styling, which is this page's own concern;
          it says nothing about what a consumer puts in a hole. */
-      .hole { background: var(--hole-ground); box-sizing: border-box; border: 1px solid transparent; }
+      .hole { background: var(--hole-ground); box-sizing: border-box; border: 1px solid transparent;
+        border-radius: var(--hole-radius); overflow: hidden; }
       /* Hole chrome that matches a consumer's DOCKED pane chrome — a popped-out tab must look
          and work exactly as it did docked. The 1px border is always present (transparent by
          default), so focusing never shifts layout: only its colour changes. `.focused` paints
@@ -67,7 +80,6 @@
          the eye looks to answer "which one is typing". `z-index: 1` paints it over the divider
          (a later sibling of the first hole), and `#holes` clips it so it never spills past the
          hole edges onto the transparent canvas or under the banner. */
-      #holes { overflow: hidden; }
       #holes.multi .hole.focused { position: relative; z-index: 1;
         --ring: hsl(from var(--accent, #6b7280) h calc(max(s, 85)) 62);
         border-color: var(--ring); box-shadow: 0 0 6px var(--ring); }
