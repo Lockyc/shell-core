@@ -265,9 +265,9 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     (`set_focused_hole` → `FOCUS_EVENT`; the first hole starts focused). The ring is a `::before`
     clipped by `clip-path: shape()` to the window's own corner — Apple's *continuous* curve at
     16pt (`--sq` in `detach.html`), which a `border-radius` circle visibly fails to follow — and is
-    `--ring-w` = 2px, not a hairline (a 1px band antialiased on both sides through the curve's
-    run-in rendered at half intensity on a 1x display); the hole's transparent `--ring-w` border
-    exists only as the layout inset. Rects are
+    `--ring-w` = 1px by choice (a 1px band antialiased on both sides through the curve's run-in
+    renders at half intensity on a 1x display; 2px was tried and turned down for the look); the
+    hole's transparent `--ring-w` border exists only as the layout inset. Rects are
     reported as the CONTENT box inside that border, so composited content never covers the ring.
     The look (ground, divider, accent) is the same values warden's docked page uses —
     a required duplication across two pages, not one to "unify" by teaching shell-core a split. That is what keeps
