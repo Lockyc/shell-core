@@ -88,8 +88,10 @@ pub struct DetachSpec {
 /// `home::payload_json` uses, not a second copy). Same reasoning as that payload's: `serde_json`
 /// is a dependency now, but this is a fixed, one-way emission with no `Serialize` type worth
 /// defining for it. Only the page-relevant fields are embedded: `width`/`height` size the *window*
-/// at creation time, the page itself never reads them.
-fn detach_payload_json(spec: &DetachSpec, app_name: &str) -> String {
+/// at creation time, the page itself never reads them. `label` is the window's own Tauri label,
+/// which the page uses to drop a [`PANES_EVENT`] addressed to a sibling detached window
+/// (`emit_to` reaches every webview, so per-window events are stamped and filtered).
+fn detach_payload_json(spec: &DetachSpec, app_name: &str, label: &str) -> String {
     let colour = match &spec.colour {
         Some(c) => format!("\"{}\"", crate::home::js_string_escape(c)),
         None => "null".to_string(),
@@ -106,9 +108,10 @@ fn detach_payload_json(spec: &DetachSpec, app_name: &str) -> String {
         String::new()
     };
     format!(
-        "{{\"appName\":\"{}\",\"title\":\"{}\",\"colour\":{colour}{panes}}}",
+        "{{\"appName\":\"{}\",\"title\":\"{}\",\"label\":\"{}\",\"colour\":{colour}{panes}}}",
         crate::home::js_string_escape(app_name),
         crate::home::js_string_escape(&spec.title),
+        crate::home::js_string_escape(label),
     )
 }
 
@@ -127,6 +130,37 @@ pub(crate) fn register_detach_protocol<R: tauri::Runtime>(
             .body(DETACH_HTML.as_bytes().to_vec())
             .expect("static response body")
     })
+}
+
+/// The event [`set_panes`] emits to a live detached window's page. Payload:
+/// `{ "label": <window label>, "panes": [<ratio>, ...] }`. The page filters on `label` (see
+/// [`detach_payload_json`]) and lays its holes out again from `panes` exactly as it did from the
+/// initial payload — empty or a single ratio collapses it to one undivided hole, and the
+/// re-report then goes through `set_hole_rect { rect }` with no `pane` key, as if the window had
+/// opened undivided.
+pub const PANES_EVENT: &str = "shell-detach:panes";
+
+/// Re-divide a live detached window's content hole into `ratios` slices, after it opened.
+///
+/// The opening layout comes from [`DetachSpec::panes`]; this is the runtime counterpart for a
+/// consumer whose slice count changes while the window is up — warden's second pane ending on
+/// its own inside a popped-out tab is the case that needed it: without a relayout the dead
+/// hole stays open, painted only by the page's ground, with nothing behind it and no way to
+/// close it short of closing the window. Same generic contract as `panes`: ratios, no cap, no
+/// terminal concept. The consumer must retire whatever it composited into a vanished hole
+/// **before** calling this — the page reports the surviving holes' rects immediately, and a
+/// `set_hole_rect` for a slice index that no longer exists is the consumer's to ignore.
+pub fn set_panes<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    label: &str,
+    ratios: &[f64],
+) -> tauri::Result<()> {
+    use tauri::Emitter as _;
+    app.emit_to(
+        label,
+        PANES_EVENT,
+        serde_json::json!({ "label": label, "panes": ratios }),
+    )
 }
 
 /// Open a detached tab's window: the banner-shell surface (this window's *primary* webview,
@@ -166,7 +200,7 @@ where
     F: FnOnce(&tauri::WebviewWindow<R>, tauri::LogicalSize<f64>) -> tauri::Result<()>,
 {
     let label = detached_label(token);
-    let payload = detach_payload_json(spec, app_name);
+    let payload = detach_payload_json(spec, app_name, &label);
 
     let url: tauri::Url = format!("{DETACH_SCHEME}://localhost/")
         .parse()
@@ -275,6 +309,7 @@ mod tests {
                 panes: vec![],
             },
             "warden",
+            "shell-detach:x",
         );
         assert!(s.contains("a\\\"b"));
         assert!(!s.contains("a\"b"));
@@ -292,6 +327,7 @@ mod tests {
                 panes: vec![],
             },
             "lector",
+            "shell-detach:x",
         );
         assert!(s.contains("\"colour\":null"));
     }
@@ -305,7 +341,7 @@ mod tests {
             height: 600.0,
             panes: vec![],
         };
-        let json = detach_payload_json(&spec, "warden");
+        let json = detach_payload_json(&spec, "warden", "shell-detach:x");
         assert!(
             !json.contains("\"panes\""),
             "single-hole payload must not carry panes: {json}"
@@ -321,7 +357,25 @@ mod tests {
             height: 600.0,
             panes: vec![0.3, 0.7],
         };
-        let json = detach_payload_json(&spec, "warden");
+        let json = detach_payload_json(&spec, "warden", "shell-detach:x");
         assert!(json.contains("\"panes\":[0.3,0.7]"), "got: {json}");
+    }
+
+    #[test]
+    fn payload_carries_the_window_label_for_event_filtering() {
+        // The page drops a PANES_EVENT stamped for a sibling window; that needs its own label,
+        // which only the Rust side knows at open time.
+        let spec = DetachSpec {
+            title: "t".into(),
+            colour: None,
+            width: 1.0,
+            height: 1.0,
+            panes: vec![],
+        };
+        let json = detach_payload_json(&spec, "warden", "shell-detach:abc");
+        assert!(
+            json.contains("\"label\":\"shell-detach:abc\""),
+            "got: {json}"
+        );
     }
 }
