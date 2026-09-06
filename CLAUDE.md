@@ -205,7 +205,8 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     own `tauri` dependency, since curator's and lector's content webviews `add_child` a webview per
     open tab, so this costs nothing new downstream.
 - **The detach surface** (`detach::{DETACH_LABEL_PREFIX, detached_label, is_detached_label,
-  detach_token, DetachSpec, open_detached, wire_return, set_panes, PANES_EVENT}`, `runtime` feature) — the "pop a tab out
+  detach_token, DetachSpec, open_detached, wire_return, set_panes, set_focused_hole, PANES_EVENT,
+  FOCUS_EVENT, CLOSE_HOLE_COMMAND}`, `runtime` feature) — the "pop a tab out
   into its own temporary window" lifecycle, consumed by warden/curator/lector alike. It owns two
   things:
   - **A reserved label scheme.** `DETACH_LABEL_PREFIX = "shell-detach:"` + `detached_label(token)`
@@ -254,7 +255,15 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     label, ratios)` re-divides a live window the same way after it opened** (emits `PANES_EVENT`,
     which the page filters on its own label — the payload carries `label` for exactly this — and
     relays out from, one hole for a single ratio); the consumer retires what it composited into a
-    vanished slice *before* calling it, since the page re-reports the survivors at once. That is what keeps
+    vanished slice *before* calling it, since the page re-reports the survivors at once.
+    **A divided hole carries the docked pane chrome, so a popped-out tab is the same UI it was
+    docked**: each divider drags and carries a close control that invokes the consumer's
+    `close_hole { pane }` (`CLOSE_HOLE_COMMAND` — consumer-implemented like `set_hole_rect`, never
+    invoked with one hole, answered with `set_panes`), and a 1px accent focus ring sits on the
+    typing hole (`set_focused_hole` → `FOCUS_EVENT`; the first hole starts focused). Rects are
+    reported as the CONTENT box inside that border, so composited content never covers the ring.
+    The look (ground, divider, close pill, accent) is the same values warden's docked page uses —
+    a required duplication across two pages, not one to "unify" by teaching shell-core a split. That is what keeps
     curator and lector (which declare no panes) completely unaffected, and it's the property a
     downstream task verifies by running them. With more than one ratio, each slice reports its
     own rect via `set_hole_rect { rect, pane: i }` (0-based). `panes` is deliberately generic
