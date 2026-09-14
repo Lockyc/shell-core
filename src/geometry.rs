@@ -2,8 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -269,7 +268,8 @@ fn fit_restored_size(saved: Rect, work: Option<Rect>) -> Rect {
 ///
 /// `LogicalSize`/`LogicalPosition` pass through tao unscaled (`dpi`'s
 /// `Position::Logical(p) => p.cast()`), so no scale factor is consulted anywhere on this path.
-fn restore<R: Runtime>(window: &Window<R>, saved: Rect) {
+/// Returns the rect it applied (position ignored by the caller when the display was gone).
+fn restore<R: Runtime>(window: &Window<R>, saved: Rect) -> Rect {
     let work_areas: Vec<Rect> = window
         .available_monitors()
         .unwrap_or_default()
@@ -296,6 +296,7 @@ fn restore<R: Runtime>(window: &Window<R>, saved: Rect) {
             let _ = window.set_position(LogicalPosition::new(fitted.x, fitted.y));
             let _ = window.set_size(LogicalSize::new(fitted.width, fitted.height));
             let _ = window.set_position(LogicalPosition::new(fitted.x, fitted.y));
+            fitted
         }
         None => {
             // The display this window was saved on is gone. Keep the size — still clamped, against
@@ -318,30 +319,14 @@ fn restore<R: Runtime>(window: &Window<R>, saved: Rect) {
                 .or_else(|| work_areas.first().copied());
             let fitted = fit_restored_size(saved, primary);
             let _ = window.set_size(LogicalSize::new(fitted.width, fitted.height));
+            fitted
         }
     }
 }
 
-/// Record `window`'s current geometry in the cache (no-op when `snapshot` declines it).
-fn record<R: Runtime>(window: &Window<R>) {
-    if let Some(rect) = snapshot(window) {
-        let state = window.state::<GeometryState>();
-        let mut cache = state
-            .cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        cache.insert(window.label().to_string(), rect);
-    }
-}
-
-/// Run `work` on the main dispatch queue after every block already queued there, which includes
-/// tao's async `set_size`/`set_position` calls. Called from the main thread, so the queue's FIFO
-/// order is what puts `work` after them.
-fn after_queued_main_work(work: impl FnOnce() + Send + 'static) {
-    #[cfg(target_os = "macos")]
-    dispatch2::DispatchQueue::main().exec_async(work);
-    #[cfg(not(target_os = "macos"))]
-    work();
+/// Whether two rects have the same size to within sub-point rounding, ignoring position.
+fn same_size(a: Rect, b: Rect) -> bool {
+    (a.width - b.width).abs() < 0.5 && (a.height - b.height).abs() < 0.5
 }
 
 /// Re-snapshot every live window into the cache and write it out.
@@ -416,25 +401,20 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
                 .get(&label)
                 .copied();
 
-            // FOOTGUN: recording must wait until the restore has *landed*. tao applies
-            // `set_position`/`set_size` asynchronously on the main dispatch queue, and the first
-            // move's `Moved`/`Resized` events are delivered before the queued resize runs — so a
-            // snapshot taken then reads the builder's default size and overwrites the saved rect in
-            // the cache. Nothing corrects it (no later event fires for the queued resize), so the
-            // window reopens at its default size after a mid-session close. `settling` gates the
-            // handler below until a step queued *behind* tao's setters on the same serial queue
-            // records the settled geometry. This hook runs on the main thread (Tauri dispatches
-            // `window_created` there), which is what makes that queue order hold.
-            let settling = Arc::new(AtomicBool::new(saved.is_some()));
-            if let Some(rect) = saved {
-                restore(&window, rect);
-                let settled = window.clone();
-                let flag = settling.clone();
-                after_queued_main_work(move || {
-                    record(&settled);
-                    flag.store(false, Ordering::SeqCst);
-                });
-            }
+            // FOOTGUN: don't record a restoring window at its creation size. tao applies `set_size`
+            // asynchronously, and the restore's first move delivers `Moved`/`Resized` while the
+            // window is still at the builder's default size; no event fires when the resize lands.
+            // Recording those snapshots cached the default over the saved rect, so a window closed
+            // mid-session reopened at its default size. The resize can't be waited on either — it
+            // lands after a main-queue block queued behind it. So `creation` holds the pre-restore
+            // rect, snapshots still at that size are skipped, and the first one at any other size
+            // (the restore landed, or the user resized) clears it. Meanwhile the cache keeps the
+            // saved rect. `None` when nothing is restored or the restore doesn't change the size.
+            let creation = Mutex::new(saved.and_then(|rect| {
+                let before = snapshot(&window);
+                let fitted = restore(&window, rect);
+                before.filter(|b| !same_size(*b, fitted))
+            }));
 
             // Snapshot on move/resize so a window's bounds survive even when the window itself is
             // closed mid-session: by the time `flush` runs on `RunEvent::Exit`, a closed window is
@@ -450,10 +430,26 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
                 if !matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
                     return;
                 }
-                if settling.load(Ordering::SeqCst) {
+                let Some(rect) = snapshot(&tracked) else {
                     return;
+                };
+                {
+                    let mut creation = creation
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if let Some(before) = *creation {
+                        if same_size(before, rect) {
+                            return;
+                        }
+                        *creation = None;
+                    }
                 }
-                record(&tracked);
+                let state = tracked.state::<GeometryState>();
+                let mut cache = state
+                    .cache
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                cache.insert(tracked.label().to_string(), rect);
             });
         })
         .on_event(|app, event| {
@@ -603,6 +599,20 @@ mod tests {
         let out = fit_restored_size(degenerate, None);
         assert_eq!(out.width, MIN_DIM);
         assert_eq!(out.height, MIN_DIM);
+    }
+
+    /// The restore gate skips snapshots still at the creation size, which the handler reads while
+    /// tao's async resize is pending (position may already have moved).
+    #[test]
+    fn same_size_ignores_position_and_subpoint_rounding() {
+        assert!(same_size(
+            rect(0.0, 40.0, 1500.0, 1000.0),
+            rect(300.0, 200.0, 1500.2, 999.9)
+        ));
+        assert!(!same_size(
+            rect(300.0, 200.0, 1500.0, 1000.0),
+            rect(300.0, 200.0, 900.0, 650.0)
+        ));
     }
 
     #[test]

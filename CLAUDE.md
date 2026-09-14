@@ -79,15 +79,15 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     silently constrain the rect against the wrong monitor (e.g. shrinking a large-external-display
     rect to fit the built-in display), and the resulting `Resized` event then caches that shrunken
     size, making the corruption stick through the next quit. Don't collapse this back to two calls.
-  - **Footgun that survives: don't record move/resize events until a restore has landed.** tao
-    applies `set_size`/`set_position` asynchronously on the main dispatch queue, and the first
-    move's events arrive before the queued resize runs. Recording them caches the window's
-    *default* size over its saved one, with no later event to correct it, so a window closed
-    mid-session reopens at the default size (only windows still open at quit were saved right,
-    because `flush` re-snapshots them). `on_window_ready` gates the handler on a `settling` flag
-    that a step queued behind tao's setters (`after_queued_main_work`) clears after recording the
-    settled rect. Don't drop the gate, and don't run the settle step inline: it would run before
-    the resize.
+  - **Footgun that survives: don't record a restoring window at its creation size.** tao applies
+    `set_size` asynchronously, and the restore's first move delivers `Moved`/`Resized` while the
+    window is still at the builder's default size; no event fires when the resize lands. Recording
+    those caches the *default* size over the saved one, so a window closed mid-session reopens at
+    the default size (windows still open at quit were saved right, because `flush` re-snapshots
+    them). `on_window_ready` keeps the pre-restore rect and skips snapshots at that size until one
+    differs. Don't replace the gate with "wait for the restore": the resize lands even after a
+    main-queue block queued behind it, so a queued settle step records the default size too
+    (tried, verified on-device).
   - **Footgun that survives: the fullscreen/minimized guard in `snapshot` must fail *closed*.**
     `is_fullscreen()`/`is_minimized()` default to `true` on a query error, not `false` — skipping a
     snapshot on error costs a slightly stale rect, while recording one while genuinely fullscreen
