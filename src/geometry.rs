@@ -2,7 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -321,6 +322,28 @@ fn restore<R: Runtime>(window: &Window<R>, saved: Rect) {
     }
 }
 
+/// Record `window`'s current geometry in the cache (no-op when `snapshot` declines it).
+fn record<R: Runtime>(window: &Window<R>) {
+    if let Some(rect) = snapshot(window) {
+        let state = window.state::<GeometryState>();
+        let mut cache = state
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        cache.insert(window.label().to_string(), rect);
+    }
+}
+
+/// Run `work` on the main dispatch queue after every block already queued there, which includes
+/// tao's async `set_size`/`set_position` calls. Called from the main thread, so the queue's FIFO
+/// order is what puts `work` after them.
+fn after_queued_main_work(work: impl FnOnce() + Send + 'static) {
+    #[cfg(target_os = "macos")]
+    dispatch2::DispatchQueue::main().exec_async(work);
+    #[cfg(not(target_os = "macos"))]
+    work();
+}
+
 /// Re-snapshot every live window into the cache and write it out.
 fn flush<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<GeometryState>();
@@ -392,8 +415,25 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .get(&label)
                 .copied();
+
+            // FOOTGUN: recording must wait until the restore has *landed*. tao applies
+            // `set_position`/`set_size` asynchronously on the main dispatch queue, and the first
+            // move's `Moved`/`Resized` events are delivered before the queued resize runs — so a
+            // snapshot taken then reads the builder's default size and overwrites the saved rect in
+            // the cache. Nothing corrects it (no later event fires for the queued resize), so the
+            // window reopens at its default size after a mid-session close. `settling` gates the
+            // handler below until a step queued *behind* tao's setters on the same serial queue
+            // records the settled geometry. This hook runs on the main thread (Tauri dispatches
+            // `window_created` there), which is what makes that queue order hold.
+            let settling = Arc::new(AtomicBool::new(saved.is_some()));
             if let Some(rect) = saved {
                 restore(&window, rect);
+                let settled = window.clone();
+                let flag = settling.clone();
+                after_queued_main_work(move || {
+                    record(&settled);
+                    flag.store(false, Ordering::SeqCst);
+                });
             }
 
             // Snapshot on move/resize so a window's bounds survive even when the window itself is
@@ -404,23 +444,16 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
             // this handler is the only reason its remembered size survives at all.
             // (The cache is memory-only and the exit-time
             // flush is the only write to disk, so this does *not* protect against an abnormal exit
-            // or crash — only against a window closing before a normal one.) No suppression around
-            // `restore` is needed: an echoed event records the geometry the window genuinely has,
-            // and every value on this path is already point-correct and clamped — unlike the
-            // physical-pixel model, there is no value here that could be wrong to write back.
+            // or crash — only against a window closing before a normal one.)
             let tracked = window.clone();
             window.on_window_event(move |event| {
                 if !matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
                     return;
                 }
-                if let Some(rect) = snapshot(&tracked) {
-                    let state = tracked.state::<GeometryState>();
-                    let mut cache = state
-                        .cache
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    cache.insert(tracked.label().to_string(), rect);
+                if settling.load(Ordering::SeqCst) {
+                    return;
                 }
+                record(&tracked);
             });
         })
         .on_event(|app, event| {
