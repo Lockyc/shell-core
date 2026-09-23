@@ -19,8 +19,8 @@
 //!   of differing scale factor: physical is points × the occupied screen's scale factor, so a rect
 //!   saved on a 2x display and applied on a 1x one is out by the ratio. Given an app's resolved
 //!   config path it derives `.window-geometry-{fnv1a_64(canonicalize(path)):016x}.json`
-//!   ([`geometry_filename`]), the canonicalize→hash→format step that was copied per app (only the
-//!   *path* is app-specific).
+//!   ([`geometry_filename`], over [`config_scoped_filename`] — the canonicalize→hash→format step,
+//!   also used by an app's own per-config stores; only the *path* and stem are app-specific).
 //!   [`menu`] builds the shared menu spine — the App/Config/Window submenus, identical across apps,
 //!   plus the Close Tab and Pop Out Tab items; each app's own items (curator's Reload Tab, warden's
 //!   tab semantics) interleave with it. [`home`] is the surface an app shows when it would otherwise
@@ -179,6 +179,6 @@ mod runtime {
 }
 
 #[cfg(feature = "runtime")]
-pub use geometry::geometry_filename;
+pub use geometry::{config_scoped_filename, geometry_filename};
 #[cfg(feature = "runtime")]
 pub use runtime::register_plugins;

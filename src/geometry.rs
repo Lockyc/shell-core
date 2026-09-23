@@ -116,22 +116,28 @@ fn pick_monitor(saved: Rect, work_areas: &[Rect]) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
-/// Filename for the geometry store, scoped per config file:
-/// `.window-geometry-{fnv1a_64(canonicalize(config_path)):016x}.json`.
+/// Filename for the geometry store: [`config_scoped_filename`] with the `window-geometry` stem.
+pub fn geometry_filename(config_path: &Path) -> String {
+    config_scoped_filename("window-geometry", config_path)
+}
+
+/// Filename for an app's per-config state store, scoped per config file:
+/// `.{stem}-{fnv1a_64(canonicalize(config_path)):016x}.json`.
 ///
-/// Geometry is keyed by Tauri label *within one file*, and two different configs can reuse a
+/// App state is keyed by Tauri label *within one file*, and two different configs can reuse a
 /// window title (`just run`'s `examples/config.toml` vs a real `~/.config/<app>/config.toml`), so
-/// the filename is scoped by a stable hash of the canonicalized config path to keep their bounds
-/// separate. Moving or renaming the config orphans its saved bounds — acceptable; the path is
+/// the filename is scoped by a stable hash of the canonicalized config path to keep their state
+/// separate. Moving or renaming the config orphans its saved state — acceptable; the path is
 /// otherwise stable.
 ///
-/// **The policy is shared; only the *path* is app-specific.** Each app resolves its own config
-/// path and hands it here, so the canonicalize → hash → format step lives here once.
-pub fn geometry_filename(config_path: &Path) -> String {
+/// **The policy is shared; only the *path* and the *stem* are app-specific.** Each app resolves
+/// its own config path and hands it here, so the canonicalize → hash → format step lives here once
+/// — for the geometry store and for any other per-config store an app keeps beside it.
+pub fn config_scoped_filename(stem: &str, config_path: &Path) -> String {
     let canonical =
         std::fs::canonicalize(config_path).unwrap_or_else(|_| config_path.to_path_buf());
     format!(
-        ".window-geometry-{:016x}.json",
+        ".{stem}-{:016x}.json",
         fnv1a_64(canonical.as_os_str().as_encoded_bytes())
     )
 }
@@ -641,6 +647,18 @@ mod tests {
         assert_eq!(name, geometry_filename(p));
         assert!(name.starts_with(".window-geometry-"));
         assert!(name.ends_with(".json"));
+    }
+
+    #[test]
+    fn config_scoped_filename_shares_the_hash_across_stems() {
+        let p = Path::new("/no/such/config.toml");
+        let geo = geometry_filename(p);
+        let other = config_scoped_filename("session", p);
+        assert!(other.starts_with(".session-"));
+        assert_eq!(
+            geo.strip_prefix(".window-geometry"),
+            other.strip_prefix(".session")
+        );
     }
 
     #[test]
