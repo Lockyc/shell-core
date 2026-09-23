@@ -56,7 +56,7 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   popped-out tab reopens at the size and position it was last left at; see `detach`'s label scheme
   below. Nothing stays per-app beyond handing it a
   resolved config path: the canonicalize→hash→format filename step
-  (`.window-geometry-{fnv1a_64(canonicalize(path)):016x}.json`, `geometry_filename`) lives here
+  (`.{stem}-{fnv1a_64(canonicalize(path)):016x}.json`, `config_scoped_filename`, which `geometry_filename` and any app-side per-config store share) lives here
   once, since it was byte-identical across all three apps' old per-app copies. Uses its own
   `fnv1a_64` — a spec-defined, test-vector-pinned primitive, **not** a shadow of the config crates'
   own `fnv1a_64` (that hashes window titles/tab dirs for *label identity*, a separate domain that
