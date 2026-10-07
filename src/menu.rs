@@ -14,6 +14,7 @@ pub mod ids {
     pub const REVEAL_CONFIG: &str = "shell:reveal_config";
     pub const CLOSE_TAB: &str = "shell:close_tab";
     pub const POP_OUT_TAB: &str = "shell:pop_out_tab";
+    pub const FIND_IN_SIDEBAR: &str = "shell:find_in_sidebar";
     pub const CLOSE_WINDOW: &str = "shell:close_window";
     pub const OPEN_WINDOW_PREFIX: &str = "shell:open_window:";
     pub const TAB_PREV: &str = "shell:tab_prev";
@@ -41,6 +42,11 @@ pub const ACCEL_CLOSE_WINDOW: &str = "Shift+Cmd+KeyW";
 /// wins over any colliding terminal keybind (curator and lector embed no terminal, so the question
 /// doesn't arise for them).
 pub const ACCEL_POP_OUT_TAB: &str = "Shift+Cmd+KeyO";
+
+/// The family's Find in Sidebar accelerator. ⌘⇧F, not ⌘F: the menu gets first refusal on key
+/// equivalents, so ⌘F here would take find-in-page from curator's and lector's content and
+/// find-in-terminal from warden's.
+pub const ACCEL_FIND_IN_SIDEBAR: &str = "Shift+Cmd+KeyF";
 
 /// The family's tab-cycling accelerators — ⌘⇧[ / ⌘⇧] , the browser convention. Constants for the
 /// same reason as the close accelerators: one convention, one place, no per-app copy to drift
@@ -228,15 +234,16 @@ use tauri::menu::{
     AboutMetadataBuilder, CheckMenuItemBuilder, MenuItem, MenuItemBuilder, Submenu, SubmenuBuilder,
 };
 
-/// What `build_spine` hands back: the shared submenus, plus the Close Tab and Pop Out Tab items for
-/// the app to place in its own tab submenu (every app's differs).
+/// What `build_spine` hands back: the shared submenus, plus the Close Tab, Pop Out Tab and Find in
+/// Sidebar items for the app to place in its own tab submenu (every app's differs).
 pub struct Spine<R: tauri::Runtime> {
     pub submenus: Vec<Submenu<R>>,
     pub close_tab: MenuItem<R>,
     pub pop_out_tab: MenuItem<R>,
+    pub find_in_sidebar: MenuItem<R>,
 }
 
-/// Build the App, Config, and Window submenus plus the Close Tab and Pop Out Tab items. Returns
+/// Build the App, Config, and Window submenus plus the tab-submenu items `Spine` names. Returns
 /// them for the app to place among its own — this does NOT set the menu, mirroring how
 /// `register_plugins` returns the `Builder` for continued chaining.
 ///
@@ -291,6 +298,11 @@ pub fn build_spine<R: tauri::Runtime, M: tauri::Manager<R>>(
         .accelerator(ACCEL_POP_OUT_TAB)
         .build(manager)?;
 
+    // Same rationale again; the app forwards it to its sidebar's `focusSearch()`.
+    let find_in_sidebar = MenuItemBuilder::with_id(ids::FIND_IN_SIDEBAR, "Find in Sidebar")
+        .accelerator(ACCEL_FIND_IN_SIDEBAR)
+        .build(manager)?;
+
     let close_window = MenuItemBuilder::with_id(ids::CLOSE_WINDOW, "Close Window")
         .accelerator(ACCEL_CLOSE_WINDOW)
         .build(manager)?;
@@ -323,6 +335,7 @@ pub fn build_spine<R: tauri::Runtime, M: tauri::Manager<R>>(
         submenus: vec![app_menu, config_menu, window_menu],
         close_tab,
         pop_out_tab,
+        find_in_sidebar,
     })
 }
 
@@ -376,6 +389,19 @@ mod tests {
     #[test]
     fn pop_out_accelerator_is_the_family_standard() {
         assert_eq!(ACCEL_POP_OUT_TAB, "Shift+Cmd+KeyO");
+    }
+
+    #[test]
+    fn find_in_sidebar_accelerator_is_the_family_standard_and_unclaimed() {
+        assert_eq!(ACCEL_FIND_IN_SIDEBAR, "Shift+Cmd+KeyF");
+        let others = [
+            ACCEL_CLOSE_TAB,
+            ACCEL_CLOSE_WINDOW,
+            ACCEL_POP_OUT_TAB,
+            ACCEL_TAB_PREV,
+            ACCEL_TAB_NEXT,
+        ];
+        assert!(!others.contains(&ACCEL_FIND_IN_SIDEBAR));
     }
 
     #[test]

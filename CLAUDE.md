@@ -312,6 +312,9 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     (`Spine::pop_out_tab`) for the app to place in its own tab submenu, for the identical reason
     `close_tab` is returned rather than handled: it needs the focused window, which only the app
     can resolve. The spine builds the item; it does not act on it.
+  - **Find in Sidebar** (`menu::ids::FIND_IN_SIDEBAR`, `⌘⇧F` / `menu::ACCEL_FIND_IN_SIDEBAR`) is
+    returned the same way (`Spine::find_in_sidebar`): the app calls its focused window's chrome-core
+    `focusSearch()`.
 
 **Out — and why (do not "consolidate" these; the divergence is real):**
 - **IPC fan-out** — curator centralizes `emit_to_*chrome` helpers with plain event names; warden
