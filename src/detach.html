@@ -206,6 +206,8 @@
       // No cap here: how many panes is a consuming-app concept (warden's own type caps it at
       // 2), and shell-core must not learn what a "split" is — it lays out whatever ratios
       // arrive.
+      // The consumer's `[min, max]` share for a dragged pair's left pane (`DetachSpec::pane_band`).
+      const band = Array.isArray(payload.paneBand) ? payload.paneBand : [0, 1];
       const toRatios = (panes) => (Array.isArray(panes) && panes.length > 1 ? panes : [1]);
 
       const holesEl = document.getElementById('holes');
@@ -242,7 +244,7 @@
           const startShare = pairFlex > 0 ? leftFlex / pairFlex : 0.5;
           const onMove = (mv) => {
             const delta = (mv.clientX - startX) / Math.max(1, total);
-            const nextShare = Math.min(0.9, Math.max(0.1, startShare + delta));
+            const nextShare = Math.min(band[1], Math.max(band[0], startShare + delta));
             left.style.flex = `${nextShare * pairFlex} 1 0`;
             right.style.flex = `${(1 - nextShare) * pairFlex} 1 0`;
             reportRect();
