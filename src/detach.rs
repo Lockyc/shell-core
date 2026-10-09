@@ -83,6 +83,10 @@ pub struct DetachSpec {
     /// and supplies the ratios. A `panes: Vec<TerminalPane>`-shaped field here would be an
     /// app concept in a shared core, which the constellation's flat fan-out rule forbids.
     pub panes: Vec<f64>,
+    /// The `[min, max]` share a divider drag keeps the left pane of each adjacent pair within,
+    /// supplied by the consumer that owns the split concept. `None` = unclamped `[0, 1]`. Only
+    /// emitted alongside `panes`, so a single-hole consumer passes `None`.
+    pub pane_band: Option<[f64; 2]>,
 }
 
 /// Build the `window.__SHELL_DETACH__` payload `detach.html` reads: a small hand-rolled JSON
@@ -105,7 +109,11 @@ fn detach_payload_json(spec: &DetachSpec, app_name: &str, label: &str) -> String
             .map(|r| format!("{r}"))
             .collect::<Vec<_>>()
             .join(",");
-        format!(",\"panes\":[{list}]")
+        let band = match spec.pane_band {
+            Some([lo, hi]) => format!(",\"paneBand\":[{lo},{hi}]"),
+            None => String::new(),
+        };
+        format!(",\"panes\":[{list}]{band}")
     } else {
         String::new()
     };
@@ -330,6 +338,7 @@ mod tests {
                 width: 800.0,
                 height: 600.0,
                 panes: vec![],
+                pane_band: None,
             },
             "warden",
             "shell-detach:x",
@@ -348,6 +357,7 @@ mod tests {
                 width: 1.0,
                 height: 1.0,
                 panes: vec![],
+                pane_band: None,
             },
             "lector",
             "shell-detach:x",
@@ -363,6 +373,7 @@ mod tests {
             width: 800.0,
             height: 600.0,
             panes: vec![],
+            pane_band: None,
         };
         let json = detach_payload_json(&spec, "warden", "shell-detach:x");
         assert!(
@@ -379,9 +390,13 @@ mod tests {
             width: 800.0,
             height: 600.0,
             panes: vec![0.3, 0.7],
+            pane_band: Some([0.1, 0.9]),
         };
         let json = detach_payload_json(&spec, "warden", "shell-detach:x");
-        assert!(json.contains("\"panes\":[0.3,0.7]"), "got: {json}");
+        assert!(
+            json.contains("\"panes\":[0.3,0.7],\"paneBand\":[0.1,0.9]"),
+            "got: {json}"
+        );
     }
 
     #[test]
@@ -394,6 +409,7 @@ mod tests {
             width: 1.0,
             height: 1.0,
             panes: vec![],
+            pane_band: None,
         };
         let json = detach_payload_json(&spec, "warden", "shell-detach:abc");
         assert!(
