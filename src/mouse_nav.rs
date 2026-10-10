@@ -2,10 +2,9 @@
 //! lector (warden hosts native terminal surfaces with no page history and does not use it).
 //!
 //! macOS delivers a mouse's back/forward side buttons in one of two ways, and WKWebView acts on
-//! neither — nor does it forward them to the DOM, which is why a page-level JS `mouseup` handler
-//! never sees them (the reason the earlier injected-JS approach never worked). So we install a
-//! local `NSEvent` monitor and drive the focused tab's WKWebView history natively
-//! (`goBack`/`goForward`), the layer a real browser handles them at:
+//! neither — nor does it forward them to the DOM, so no page-level JS `mouseup` handler or
+//! injected script ever sees them. So we install a local `NSEvent` monitor and drive the focused
+//! tab's WKWebView history natively (`goBack`/`goForward`), the layer a real browser handles them at:
 //!
 //! - A plain mouse (no driver) sends them as `otherMouseDown` with buttonNumber 3 (back) / 4
 //!   (forward).
