@@ -38,9 +38,10 @@ It carries two concerns, split by Cargo feature so a build-dependency stays ligh
     1x one comes back out by the ratio.
   - `menu::build_spine()` builds the **menu spine** — the App submenu (About, Check for Updates…),
     the Config submenu (Edit Config / Reveal in Finder), and the Window submenu (a checked
-    per-window selector), plus the Close Tab / Pop Out Tab items, tab-navigation accelerators, and
-    the family-standard close accelerators (⌘W a tab, ⌘⇧W the window) as constants. It returns the
-    submenus for the app to interleave with its own per-app items; it does not set the menu.
+    per-window selector), plus the Close Tab / Pop Out Tab / Find in Sidebar items and the
+    family-standard close accelerators (⌘W a tab, ⌘⇧W the window) as constants. It returns the
+    submenus and items for the app to interleave with its own per-app items; it does not set the
+    menu. `menu::build_tab_nav()` builds the tab-navigation block (Previous/Next Tab, ⌘1–⌘9).
   - `home::{home_state, show_home, close_home}` is the **home surface** — what an app shows when it
     would otherwise have no window (no config / a load error / a valid config's window list), so a
     fresh install never launches to nothing. shell-core owns the surface; the app wires the actions
