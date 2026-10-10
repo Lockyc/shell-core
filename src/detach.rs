@@ -84,8 +84,9 @@ pub struct DetachSpec {
     /// app concept in a shared core, which the constellation's flat fan-out rule forbids.
     pub panes: Vec<f64>,
     /// The `[min, max]` share a divider drag keeps the left pane of each adjacent pair within,
-    /// supplied by the consumer that owns the split concept. `None` = unclamped `[0, 1]`. Only
-    /// emitted alongside `panes`, so a single-hole consumer passes `None`.
+    /// supplied by the consumer that owns the split concept. `None` = unclamped `[0, 1]`. Emitted
+    /// whenever it is `Some`, even for a window that opens undivided, because the page reads it
+    /// once at open and a later [`set_panes`] split drags within it.
     pub pane_band: Option<[f64; 2]>,
 }
 
@@ -109,16 +110,16 @@ fn detach_payload_json(spec: &DetachSpec, app_name: &str, label: &str) -> String
             .map(|r| format!("{r}"))
             .collect::<Vec<_>>()
             .join(",");
-        let band = match spec.pane_band {
-            Some([lo, hi]) => format!(",\"paneBand\":[{lo},{hi}]"),
-            None => String::new(),
-        };
-        format!(",\"panes\":[{list}]{band}")
+        format!(",\"panes\":[{list}]")
     } else {
         String::new()
     };
+    let band = match spec.pane_band {
+        Some([lo, hi]) => format!(",\"paneBand\":[{lo},{hi}]"),
+        None => String::new(),
+    };
     format!(
-        "{{\"appName\":\"{}\",\"title\":\"{}\",\"label\":\"{}\",\"colour\":{colour}{panes}}}",
+        "{{\"appName\":\"{}\",\"title\":\"{}\",\"label\":\"{}\",\"colour\":{colour}{panes}{band}}}",
         crate::home::js_string_escape(app_name),
         crate::home::js_string_escape(&spec.title),
         crate::home::js_string_escape(label),
@@ -397,6 +398,23 @@ mod tests {
             json.contains("\"panes\":[0.3,0.7],\"paneBand\":[0.1,0.9]"),
             "got: {json}"
         );
+    }
+
+    #[test]
+    fn payload_carries_the_band_for_a_window_that_opens_undivided() {
+        // The page reads `paneBand` only from the opening payload, so a window split later via
+        // `set_panes` drags within whatever band it opened with.
+        let spec = DetachSpec {
+            title: "t".into(),
+            colour: None,
+            width: 800.0,
+            height: 600.0,
+            panes: vec![],
+            pane_band: Some([0.1, 0.9]),
+        };
+        let json = detach_payload_json(&spec, "warden", "shell-detach:x");
+        assert!(!json.contains("\"panes\""), "got: {json}");
+        assert!(json.contains("\"paneBand\":[0.1,0.9]"), "got: {json}");
     }
 
     #[test]
