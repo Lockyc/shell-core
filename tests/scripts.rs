@@ -8,6 +8,7 @@ fn scripts_are_embedded_and_generic() {
         ("release", shell_core::RELEASE_SH),
         ("gen-latest", shell_core::GEN_LATEST_SH),
         ("install", shell_core::INSTALL_APP_SH),
+        ("launch", shell_core::LAUNCH_APP_SH),
     ] {
         assert!(!body.trim().is_empty(), "{label} script is empty");
         // Every script sources the per-app tooling.env — the generalization seam.
@@ -49,7 +50,12 @@ fn materialize_writes_executable_scripts() {
     std::fs::create_dir_all(&dir).unwrap();
     shell_core::materialize_scripts(&dir).unwrap();
 
-    for name in ["release.sh", "gen-latest-json.sh", "install-app.sh"] {
+    for name in [
+        "release.sh",
+        "gen-latest-json.sh",
+        "install-app.sh",
+        "launch-app.sh",
+    ] {
         let path = dir.join(name);
         assert!(path.exists(), "{name} not materialized");
         #[cfg(unix)]
