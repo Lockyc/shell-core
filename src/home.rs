@@ -330,4 +330,11 @@ mod tests {
         assert!(s.contains("\"id\":\"w2\""));
         assert!(s.contains("\"colour\":null"));
     }
+
+    /// The page subscribes by a string literal it can't import, so a renamed constant would
+    /// compile and silently stop refreshing an open home window.
+    #[test]
+    fn home_page_listens_for_the_refresh_event() {
+        assert!(HOME_HTML.contains(&format!("'{HOME_REFRESH_EVENT}'")));
+    }
 }

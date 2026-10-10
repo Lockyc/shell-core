@@ -313,6 +313,18 @@ where
 mod tests {
     use super::*;
 
+    /// The page subscribes by string literals it can't import, so a renamed constant would
+    /// compile and silently stop `set_panes`/`set_focused_hole` reaching it.
+    #[test]
+    fn detach_page_listens_for_the_panes_and_focus_events() {
+        for event in [PANES_EVENT, FOCUS_EVENT] {
+            assert!(
+                DETACH_HTML.contains(&format!("'{event}'")),
+                "detach.html no longer listens for {event}"
+            );
+        }
+    }
+
     #[test]
     fn labels_round_trip() {
         let l = detached_label("abc123");
