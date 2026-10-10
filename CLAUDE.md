@@ -364,8 +364,8 @@ vendored source.**
 ## The embed-and-materialize pattern (the tooling seam)
 
 The scripts are the source of truth **here** in `scripts/`. `src/lib.rs` embeds each via
-`include_str!` (`RELEASE_SH`/`GEN_LATEST_SH`/`INSTALL_APP_SH`). A consumer's `build.rs` calls
-`materialize_scripts(<its scripts dir>)`, which writes them out **git-ignored** — so a plain clone
+`include_str!` (`RELEASE_SH`/`GEN_LATEST_SH`/`INSTALL_APP_SH`/`LAUNCH_APP_SH`). A consumer's
+`build.rs` calls `materialize_scripts(<its scripts dir>)`, which writes them out **git-ignored** — so a plain clone
 rebuilds them from the pinned rev and there is no second tracked copy to drift. This mirrors
 chrome-core's CSS/JS embed exactly.
 
