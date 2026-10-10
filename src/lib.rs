@@ -154,9 +154,10 @@ mod runtime {
     /// it; `None` uses an unscoped default name.
     ///
     /// `skip_labels` are for an app's own transient windows, excluded from both save and restore.
-    /// No caller passes any today — all three apps pass `&[]` — so the parameter stays reserved
-    /// for a future app-specific transient window. The home surface and every detached-tab window
-    /// are excluded structurally inside [`crate::geometry`] and must not be listed here.
+    /// No caller passes any — all three apps pass `&[]` — and the parameter is slated for removal
+    /// at the next API-breaking bump (the deferral is in CLAUDE.md). The home surface and every
+    /// detached-tab window are excluded structurally inside [`crate::geometry`] and must not be
+    /// listed here.
     pub fn register_plugins<R: Runtime>(
         builder: Builder<R>,
         config_path: Option<&Path>,

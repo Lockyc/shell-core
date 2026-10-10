@@ -49,6 +49,15 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
   (`Option<&Path>`) it hands `geometry` the derived per-config filename; `None` is a deliberate,
   documented fallback to an unscoped `.window-geometry.json` for an app with no per-config state to
   scope, not a gap to close.
+  - **Deferred: drop `register_plugins`' `skip_labels` parameter.** No consumer uses it (all three
+    pass `&[]`), so it and its plumbing are dead: `geometry::plugin`'s `skip_labels`,
+    `GeometryState.skip`, the `state.skip.contains` clause in `geometry::is_excluded`, and the
+    skip-list half of its test. Removing it changes `register_plugins`' signature, which forces a
+    re-pin of warden, curator and lector. **Unlock:** the next shell-core bump that is already
+    API-breaking for all three apps. Ride along with it; never cut a bump for this alone. **Next
+    action:** delete the parameter and the plumbing above, drop the argument at each app's call
+    site in that same lockstep re-pin, and remove the `skip_labels` mentions here and in the
+    README.
 - **`geometry`** (`runtime` feature) — per-window size/position persistence. It owns all of it:
   point-based storage, the fullscreen/minimized recording guard, the target-monitor clamp on
   restore, and the structural exclusion of the home surface (for save as well as restore).
