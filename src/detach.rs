@@ -50,8 +50,8 @@ pub fn detach_token(label: &str) -> Option<&str> {
 /// The custom URI scheme [`register_detach_protocol`] registers on the app `Builder`, serving
 /// [`DETACH_HTML`]. Mirrors [`crate::home::HOME_SCHEME`] exactly, including the reason: a
 /// Builder-registered custom protocol is classified `local` by Tauri's ACL engine, so the
-/// detached window's commands (`set_hole_rect`, and whatever return-to-window command later work
-/// adds) need no extra capability wiring beyond what each app already ships. See
+/// detached window's commands (`set_hole_rect`) need no extra capability wiring beyond what each
+/// app already ships. See
 /// `home::HOME_SCHEME`'s doc for the fuller "why not a `data:` URL" rationale — it applies
 /// identically here.
 const DETACH_SCHEME: &str = "shell-detach";
