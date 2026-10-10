@@ -16,11 +16,11 @@
 #   the app normally. So `just deploy` produces an app running in an environment that no real launch
 #   ever reproduces, and bugs appear (or vanish) purely by launch method.
 #
-#   It bites hardest in a terminal host: warden gives every libghostty surface's shell its own
-#   environment verbatim, so a leaked SHELL means tabs open the *deploying* shell instead of the
+#   It bites hardest in a terminal host, which gives every terminal surface's shell its own
+#   environment verbatim: a leaked SHELL means tabs open the *deploying* shell instead of the
 #   login shell, and leaked TMUX/GHOSTTY vars make nested-session detection misfire. An app can
-#   scrub specific vars it knows about (warden's main.rs scrubs TMUX/TMUX_PANE and
-#   GHOSTTY_RESOURCES_DIR), but it cannot chase an open-ended set — the fix belongs at the launch.
+#   scrub specific vars it knows about (TMUX/TMUX_PANE, GHOSTTY_RESOURCES_DIR), but it cannot
+#   chase an open-ended set — the fix belongs at the launch.
 #
 #   `env -i` clears the caller side, so the app inherits only the launchd GUI-session environment:
 #   verified byte-for-byte identical to a Spotlight launch (same key set, zero leaked vars).
