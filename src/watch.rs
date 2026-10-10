@@ -21,23 +21,29 @@ use std::path::{Path, PathBuf};
 /// each change to the file (matched by name), passing the file's current contents. `on_change`
 /// returns `Some(bytes)` if it wrote the file itself (format-on-save) so the watcher swallows the
 /// echo; `None` otherwise. Fire-and-forget: the thread lives for the process and the returned
-/// unit carries no handle. If the watch can't be established the thread simply exits and the
-/// config won't hot-reload.
+/// unit carries no handle.
+///
+/// The parent directory is created (before this returns) if it doesn't exist yet, so a watcher
+/// armed on a fresh install, before any config is written, still sees the file once it appears —
+/// the consumers arm it once at setup and never again. If the watch still can't be established
+/// the thread simply exits and the config won't hot-reload.
 pub fn watch_config(
     path: PathBuf,
     mut on_change: impl FnMut(&str) -> Option<String> + Send + 'static,
 ) {
+    // A bare relative filename has parent "" (watching which errors) → fall back to ".".
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    let _ = std::fs::create_dir_all(&dir);
     std::thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();
         let Ok(mut watcher) = notify::recommended_watcher(tx) else {
             return;
         };
-        // A bare relative filename has parent "" (watching which errors) → fall back to ".".
-        let dir = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        if watcher.watch(dir, RecursiveMode::NonRecursive).is_err() {
+        if watcher.watch(&dir, RecursiveMode::NonRecursive).is_err() {
             return;
         }
         let want_name = path.file_name().map(|n| n.to_owned());
@@ -106,5 +112,32 @@ mod tests {
                 Err(_) => panic!("timed out waiting for the 'second' change"),
             }
         }
+    }
+
+    #[test]
+    fn fires_when_the_config_dir_did_not_exist_yet() {
+        // A fresh install: no config dir yet, so there is nothing to watch until watch_config
+        // creates it. Writing the file afterwards (the home surface's "Create a starter config")
+        // must still reach on_change.
+        let root = tempdir().unwrap();
+        let path = root.path().join("app").join("config.toml");
+
+        let (tx, rx) = mpsc::channel();
+        watch_config(path.clone(), move |src| {
+            let _ = tx.send(src.to_string());
+            None
+        });
+        assert!(
+            path.parent().unwrap().is_dir(),
+            "watch_config must create the parent dir"
+        );
+
+        std::thread::sleep(Duration::from_millis(200));
+        write(&path, "starter");
+
+        let v = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("timed out waiting for the starter config");
+        assert_eq!(v, "starter");
     }
 }
