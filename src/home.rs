@@ -1,9 +1,7 @@
 //! The home surface: what the app shows when it would otherwise have no window.
 //!
-//! It exists so the app is **never stranded invisible**. Before this, curator had an error window
-//! (states an error, offers nothing) and warden had a launcher (offers windows, cannot express an
-//! error) — two half-implementations of one idea, and lector had neither, so a fresh install
-//! launched to nothing at all.
+//! It exists so the app is **never stranded invisible**: one surface covers no config, a load
+//! error, and a valid config's window list, so a fresh install never launches to nothing.
 //!
 //! shell-core owns the surface and its state machine; the **app wires the actions**. In particular
 //! "Create a starter config" is the app's handler calling `config_core::write_default_config` with
@@ -86,8 +84,7 @@ pub fn home_state(
 }
 
 /// Escape a string for embedding inside a double-quoted JS (and, since the escapes we emit are a
-/// subset of JSON's, JSON) string literal. Ported from curator's `js_string_escape` — curator's own
-/// copy is deleted once it adopts this surface.
+/// subset of JSON's, JSON) string literal.
 ///
 /// `pub(crate)` so [`crate::detach`] reuses it for its own payload builder instead of carrying a
 /// second copy — one source of truth for the escaping both surfaces need.
@@ -156,8 +153,7 @@ fn payload_json(state: &HomeState, app_name: &str) -> String {
 /// == [`HOME_LABEL`]), serving [`HOME_HTML`] over [`HOME_SCHEME`], with the state injected as
 /// `window.__SHELL_HOME__` via an `initialization_script`.
 ///
-/// **Not** a bare `WindowBuilder` + `add_child` (the shape this used to have, mirroring curator's
-/// `build_error_window`) — see [`close_home`]'s doc for why. Every *real* content window in every
+/// **Not** a bare `WindowBuilder` + `add_child` — see [`close_home`]'s doc for why. Every *real* content window in every
 /// consumer gives its window a primary webview via `WebviewWindowBuilder` (only *additional*
 /// webviews — content panes — are layered on with `add_child`); the home surface needs exactly
 /// one webview, so it should build the same way instead of being the one bespoke construction.
@@ -199,16 +195,13 @@ pub fn show_home<R: tauri::Runtime>(
 
 /// Close the home surface if open. Safe no-op otherwise.
 ///
-/// Plain `w.close()`. This surface's *previous* shape (a bare `WindowBuilder` + one
-/// `add_child`ed webview and nothing else, mirroring curator's `build_error_window`) is confirmed
-/// broken on macOS 26: `w.close()` returns `Ok(())` and Tauri's own bookkeeping (`get_window`)
-/// drops the window immediately, but the underlying window stays fully painted on screen —
-/// confirmed by screenshotting it *after* `close()` returned. [`show_home`] now builds this
-/// window the same way every real content window builds its own (a primary webview via
-/// `WebviewWindowBuilder`, not one `add_child`ed on afterward), removing the one construction-level
-/// difference this surface had from the rest of the family. Do not reintroduce a `WindowBuilder` +
-/// `add_child`-only construction for a window that has (or will only ever have) exactly one
-/// webview — give it that webview at construction instead.
+/// Plain `w.close()`. That is sufficient only because [`show_home`] gives the window its webview
+/// at construction (`WebviewWindowBuilder`), the way every real content window is built. A bare
+/// `WindowBuilder` + one `add_child`ed webview is broken on macOS 26: `w.close()` returns `Ok(())`
+/// and Tauri's own bookkeeping (`get_window`) drops the window immediately, but the underlying
+/// window stays fully painted on screen. Do not reintroduce a `WindowBuilder` + `add_child`-only
+/// construction for a window that has (or will only ever have) exactly one webview — give it that
+/// webview at construction instead.
 pub fn close_home<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     use tauri::Manager;
     if let Some(w) = app.get_window(HOME_LABEL) {

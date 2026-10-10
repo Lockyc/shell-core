@@ -3,8 +3,7 @@
 //! Watches the config file's **parent directory** (atomic-save editors write a temp file + rename,
 //! replacing the inode — a single-file watch would silently break) and matches events by **file
 //! name** (macOS FSEvents reports canonical `/private/var/...` paths while the caller holds a
-//! `/var/...` symlink path, so exact-path equality misses every event — the latent bug curator and
-//! lector both shipped, fixed here for both by construction). On each matching change it reads the
+//! `/var/...` symlink path, so exact-path equality misses every event). On each matching change it reads the
 //! file and hands the raw source to `on_change`; shell-core never parses (config-agnostic — no
 //! `config-core` edge). `on_change` returns `Some(bytes)` when it wrote the file itself (a
 //! format-on-save rewrite), and the watcher swallows the echo event those bytes trigger so a user
@@ -21,10 +20,9 @@ use std::path::{Path, PathBuf};
 /// Spawn a background thread that watches `path`'s parent directory and calls `on_change(src)` on
 /// each change to the file (matched by name), passing the file's current contents. `on_change`
 /// returns `Some(bytes)` if it wrote the file itself (format-on-save) so the watcher swallows the
-/// echo; `None` otherwise. Fire-and-forget: the thread lives for the process (the returned unit
-/// carries no handle, matching the apps' prior inline watchers). If the watch can't be established
-/// the thread simply exits and the config won't hot-reload — the same graceful degradation the
-/// apps had before.
+/// echo; `None` otherwise. Fire-and-forget: the thread lives for the process and the returned
+/// unit carries no handle. If the watch can't be established the thread simply exits and the
+/// config won't hot-reload.
 pub fn watch_config(
     path: PathBuf,
     mut on_change: impl FnMut(&str) -> Option<String> + Send + 'static,

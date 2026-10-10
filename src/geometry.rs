@@ -251,7 +251,7 @@ fn snapshot<R: Runtime>(window: &Window<R>) -> Option<Rect> {
 /// Choose the size to restore a saved rect at, given the work area (if any) it will land on.
 /// Both `restore` branches route through here — the branch that found an overlapping monitor and
 /// the branch that fell back to the primary one — so the floor/clamp precedence can't diverge
-/// between them the way it did before this was factored out.
+/// between them.
 ///
 /// - With a work area, clamp to it: `clamp_to_work_area` already applies the `MIN_DIM` floor
 ///   *before* the work-area cap, so the headline guarantee (never larger than the work area) holds
