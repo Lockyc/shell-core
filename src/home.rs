@@ -12,8 +12,8 @@
 
 use crate::menu::WindowEntry;
 
-/// The label of the home window. Pass it to `register_plugins`' `skip_labels` so its throwaway
-/// bounds are never persisted or restored.
+/// The label of the home window. Excluded from geometry persistence structurally
+/// (`geometry::is_excluded`); never list it in `register_plugins`' `skip_labels`.
 pub const HOME_LABEL: &str = "shell-home";
 
 /// The custom URI scheme [`register_plugins`](crate::register_plugins) registers on the app
