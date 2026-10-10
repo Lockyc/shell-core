@@ -22,8 +22,9 @@
 //!   ([`geometry_filename`], over [`config_scoped_filename`] — the canonicalize→hash→format step,
 //!   also used by an app's own per-config stores; only the *path* and stem are app-specific).
 //!   [`menu`] builds the shared menu spine — the App/Config/Window submenus, identical across apps,
-//!   plus the Close Tab and Pop Out Tab items; each app's own items (curator's Reload Tab, warden's
-//!   tab semantics) interleave with it. [`home`] is the surface an app shows when it would otherwise
+//!   plus the Close Tab, Pop Out Tab and Find in Sidebar items — and, separately
+//!   ([`menu::build_tab_nav`]), the tab-navigation block; each app's own items (curator's Reload
+//!   Tab, warden's tab semantics) interleave with them. [`home`] is the surface an app shows when it would otherwise
 //!   have no window (no config / a load error / a valid config's window list), so it is never
 //!   stranded invisible. [`detach`] is the "pop a tab out into its own temporary window" lifecycle —
 //!   the label scheme + banner-shell window a detached tab gets; the app owns moving the tab's actual
