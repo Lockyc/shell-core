@@ -37,7 +37,7 @@ APP="${BUNDLE_DIR}/${APP_NAME}.app"
 # The artifact must match the tag: build only from a clean tree whose HEAD *is* the tag. Otherwise
 # the notarized zip attached to $TAG could silently contain uncommitted or post-tag code — the one
 # thing a release artifact must never do (it's what everyone downloads as "v$VERSION").
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if [ -n "$(git status --porcelain)" ]; then
   echo "release: working tree is dirty — commit or stash before building $TAG." >&2
   exit 1
 fi
