@@ -99,17 +99,28 @@ fn window_item_label(title: &str, open: bool) -> String {
 pub fn handle_spine_event(id: &str, config_path: &Path) -> bool {
     match id {
         ids::EDIT_CONFIG => {
-            let _ = std::process::Command::new("open").arg(config_path).spawn();
+            spawn_reaped(std::process::Command::new("open").arg(config_path));
             true
         }
         ids::REVEAL_CONFIG => {
-            let _ = std::process::Command::new("open")
-                .arg("-R")
-                .arg(config_path)
-                .spawn();
+            spawn_reaped(
+                std::process::Command::new("open")
+                    .arg("-R")
+                    .arg(config_path),
+            );
             true
         }
         _ => false,
+    }
+}
+
+/// Spawn `cmd` without blocking the caller, and wait on it from a throwaway thread. Dropping a
+/// `Child` never reaps it, so an unwaited `open` would linger as a zombie for the app's life.
+fn spawn_reaped(cmd: &mut std::process::Command) {
+    if let Ok(mut child) = cmd.spawn() {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
     }
 }
 
