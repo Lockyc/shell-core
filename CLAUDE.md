@@ -19,8 +19,11 @@ shell-core is the home for app-agnostic **shell + tooling**: anything identical 
 regardless of what it hosts. It is NOT a place to abstract things that merely *look* similar.
 
 **In:**
-- The release/install scripts (`scripts/release.sh`, `gen-latest-json.sh`, `install-app.sh`,
-  `launch-app.sh`) — generic, param-driven, embedded + materialized (below). `install-app.sh` and
+- The scripts in `scripts/` — generic, param-driven, embedded + materialized (below). `release.sh`
+  is the whole release in one command, ordered so nothing goes public until the gate is green and
+  the notarized artifacts exist (its header has the steps). `core-patch.sh` is the shared-core
+  `[patch]` dev/pin loop; each app's `<core>-dev` / `<core>-pin` recipes and gate guard wrap it, and
+  those recipe names are the interface fleet tooling calls. `install-app.sh` and
   `launch-app.sh` are a deliberate pair: installing never launches ("the caller decides"), and
   launching is its own script because **`open` forwards the caller's whole environment to the app**,
   so a bare `open` in an install recipe runs the app in a terminal's environment that no real launch
@@ -373,15 +376,17 @@ vendored source.**
 ## The embed-and-materialize pattern (the tooling seam)
 
 The scripts are the source of truth **here** in `scripts/`. `src/lib.rs` embeds each via
-`include_str!` (`RELEASE_SH`/`GEN_LATEST_SH`/`INSTALL_APP_SH`/`LAUNCH_APP_SH`). A consumer's
+`include_str!`. A consumer's
 `build.rs` calls `materialize_scripts(<its scripts dir>)`, which writes them out **git-ignored** — so a plain clone
 rebuilds them from the pinned rev and there is no second tracked copy to drift. This mirrors
-chrome-core's CSS/JS embed exactly.
+chrome-core's CSS/JS embed exactly. A fresh clone therefore has none of them until its first
+build; the apps' `core-patch.sh` wrappers (gate guard included) refuse with "run `cargo check`
+first" rather than skip.
 
 - **Edit scripts HERE, never in a consuming app** — the app's copy is generated and git-ignored;
   an edit there is silently overwritten on the next build.
 - **The scripts are generic — no app name may appear in them.** Every app-specific value is read from
-  the consumer's tracked `scripts/tooling.env` (`APP_NAME`, `TAURI_CRATE_DIR`, `UPDATER_REPO`);
+  the consumer's tracked `scripts/tooling.env` (keys: `scripts/tooling.env.example`);
   everything else derives (`VERSION_FILE=${TAURI_CRATE_DIR}/Cargo.toml`, bundle `${APP_NAME}.app`,
   zip/tarball names, URLs from `${UPDATER_REPO}`). The `tests/scripts.rs` guard fails the build if
   `warden`/`curator`/`lector` leaks into a script or a script stops sourcing `tooling.env`.
