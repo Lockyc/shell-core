@@ -3,7 +3,7 @@
 //! `config-core` (config primitives). Two concerns, split by Cargo feature so a build-dependency
 //! stays light:
 //!
-//! - **Build/release tooling (default, zero-dep).** The release/deploy scripts are the source of
+//! - **Build/release tooling (default, zero-dep).** The release/install scripts are the source of
 //!   truth here in `scripts/`, embedded as
 //!   [`RELEASE_SH`]/[`GEN_LATEST_SH`]/[`INSTALL_APP_SH`]/[`LAUNCH_APP_SH`]. A
 //!   consumer's `build.rs` writes them into its own `scripts/` (git-ignored) — the same
@@ -45,13 +45,13 @@ pub const RELEASE_SH: &str = include_str!("../scripts/release.sh");
 pub const GEN_LATEST_SH: &str = include_str!("../scripts/gen-latest-json.sh");
 /// Embedded source of `scripts/install-app.sh` — the /Applications installer for local builds.
 pub const INSTALL_APP_SH: &str = include_str!("../scripts/install-app.sh");
-/// Embedded source of `scripts/launch-app.sh` — the clean-environment launcher for a deployed
+/// Embedded source of `scripts/launch-app.sh` — the clean-environment launcher for an installed
 /// build. `install-app.sh` deliberately never launches; this is its counterpart, and it exists
-/// because a bare `open` forwards the deploying terminal's whole environment to the app (the
+/// because a bare `open` forwards the installing terminal's whole environment to the app (the
 /// script's own header carries the full footgun).
 pub const LAUNCH_APP_SH: &str = include_str!("../scripts/launch-app.sh");
 
-/// Materialize the embedded release/deploy scripts into `<dir>` (each git-ignored in the consumer),
+/// Materialize the embedded release/install scripts into `<dir>` (each git-ignored in the consumer),
 /// preserving the executable bit. Call from `build.rs` with the app's `scripts/` dir so a plain
 /// clone can build + release from the pinned shell-core rev without a tracked copy to drift.
 ///
