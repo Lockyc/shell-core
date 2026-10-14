@@ -34,8 +34,9 @@ fmt:
 build:
     cargo build --features runtime
 
-# Prove the default feature set is still zero-dependency — the load-bearing invariant that lets
-# consumers take shell-core as a light [build-dependencies] entry without dragging in tauri.
+# Zero-dep default features are the load-bearing invariant that lets consumers take shell-core
+# as a light [build-dependencies] entry without dragging in tauri.
+# Prove the default feature set is still zero-dependency
 [group("check")]
 zero-dep:
     #!/usr/bin/env bash
@@ -48,9 +49,9 @@ zero-dep:
     fi
     echo "✓ default features are zero-dependency"
 
-# Non-mutating pre-merge gate: rustfmt check, clippy, and the test suite. What CI would run.
+# Non-mutating pre-merge gate: zero-dep, rustfmt check, clippy, and the test suite. What CI would run.
 [group("check")]
-gate:
+gate: zero-dep
     cargo fmt --check
     cargo clippy --features runtime --all-targets -- -D warnings
     cargo test --features runtime
