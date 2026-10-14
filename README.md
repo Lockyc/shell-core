@@ -18,12 +18,13 @@ app — extracted once so a new sibling app inherits it instead of copy-pasting 
 
 It carries two concerns, split by Cargo feature so a build-dependency stays light:
 
-- **Build/release tooling (default, zero-dependency).** The four release/install scripts live here
-  in `scripts/` as the source of truth, embedded as string constants (`RELEASE_SH`,
-  `GEN_LATEST_SH`, `INSTALL_APP_SH`, `LAUNCH_APP_SH`). A consuming app's `build.rs` writes them into
-  its own `scripts/` (git-ignored) — the same embed-and-materialize pattern chrome-core uses for its
-  CSS/JS. The scripts are **generic**; every app-specific value is read from a tracked per-app
-  `scripts/tooling.env` (three keys: `APP_NAME`, `TAURI_CRATE_DIR`, `UPDATER_REPO`). `build_stamp()`
+- **Build/release tooling (default, zero-dependency).** The scripts live here in `scripts/` as the
+  source of truth: `release.sh` (the one-command release — build + notarize, then tag, fast-forward
+  `main`, push and publish the GitHub release with its assets), the updater-manifest, install and
+  launch helpers, and `core-patch.sh` (the shared-core `[patch]` dev/pin loop). A consuming app's
+  `build.rs` writes them into its own `scripts/` (git-ignored) via `materialize_scripts` — the same
+  embed-and-materialize pattern chrome-core uses for its CSS/JS. The scripts are **generic**; every
+  app-specific value is read from a tracked per-app `scripts/tooling.env` (`scripts/tooling.env.example`). `build_stamp()`
   is the other build-time helper — a git sha/date stamp for the About box. `tabs::pick_live_neighbour`
   (which sibling tab becomes active after one unloads) also sits on this zero-dependency surface.
 - **Runtime (`runtime` feature).** The app-shell every app would otherwise hand-roll:
@@ -84,7 +85,7 @@ shell_core::materialize_scripts(std::path::Path::new("../scripts"))?; // path fr
 shell_core::build_stamp();
 ```
 
-and the app commits a three-line `scripts/tooling.env` (see `scripts/tooling.env.example`).
+and the app commits its `scripts/tooling.env` (see `scripts/tooling.env.example`).
 
 ## Development
 

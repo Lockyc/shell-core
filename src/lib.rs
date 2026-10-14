@@ -3,13 +3,12 @@
 //! `config-core` (config primitives). Two concerns, split by Cargo feature so a build-dependency
 //! stays light:
 //!
-//! - **Build/release tooling (default, zero-dep).** The release/install scripts are the source of
-//!   truth here in `scripts/`, embedded as
-//!   [`RELEASE_SH`]/[`GEN_LATEST_SH`]/[`INSTALL_APP_SH`]/[`LAUNCH_APP_SH`]. A
-//!   consumer's `build.rs` writes them into its own `scripts/` (git-ignored) — the same
+//! - **Build/release tooling (default, zero-dep).** The release/install/core-patch scripts are the
+//!   source of truth here in `scripts/`, embedded as string constants that [`materialize_scripts`]
+//!   writes into a consumer's own `scripts/` (git-ignored) from its `build.rs` — the same
 //!   embed-and-materialize pattern `chrome-core` uses for its CSS/JS. The scripts are generic;
-//!   every app-specific value is read from a tracked per-app `scripts/tooling.env` (`APP_NAME`,
-//!   `TAURI_CRATE_DIR`, `UPDATER_REPO`). [`build_stamp`] is the other build-time helper: a git
+//!   every app-specific value is read from a tracked per-app `scripts/tooling.env` (keys:
+//!   `scripts/tooling.env.example`). [`build_stamp`] is the other build-time helper: a git
 //!   sha/date stamp for the About box.
 //! - **Runtime (`runtime` feature).** [`register_plugins`] installs the plugins every app registers
 //!   identically (the updater + process plugins) and the home + detach surfaces' custom protocols.
@@ -38,7 +37,8 @@
 //!   command-isolation model — why a Tauri command needs a label gate, or doesn't (origin dispatch's
 //!   job, given no app ACL manifest) — is documented once in this crate's CLAUDE.md, not per app.
 
-/// Embedded source of `scripts/release.sh` — the generic build+notarize+upload release script.
+/// Embedded source of `scripts/release.sh` — the one-command release: build + notarize, then tag,
+/// fast-forward main, push, and publish the GitHub release with its assets.
 /// A consumer's `build.rs` writes this into its own `scripts/release.sh` (git-ignored).
 pub const RELEASE_SH: &str = include_str!("../scripts/release.sh");
 /// Embedded source of `scripts/gen-latest-json.sh` — the tauri-updater manifest generator.
@@ -50,8 +50,11 @@ pub const INSTALL_APP_SH: &str = include_str!("../scripts/install-app.sh");
 /// because a bare `open` forwards the installing terminal's whole environment to the app (the
 /// script's own header carries the full footgun).
 pub const LAUNCH_APP_SH: &str = include_str!("../scripts/launch-app.sh");
+/// Embedded source of `scripts/core-patch.sh` — the shared-core `[patch]` dev loop (`dev`/`pin`/
+/// `guard`) behind every app's `<core>-dev` / `<core>-pin` recipes and its gate's patch guard.
+pub const CORE_PATCH_SH: &str = include_str!("../scripts/core-patch.sh");
 
-/// Materialize the embedded release/install scripts into `<dir>` (each git-ignored in the consumer),
+/// Materialize the embedded scripts into `<dir>` (each git-ignored in the consumer),
 /// preserving the executable bit. Call from `build.rs` with the app's `scripts/` dir so a plain
 /// clone can build + release from the pinned shell-core rev without a tracked copy to drift.
 ///
@@ -62,6 +65,7 @@ pub fn materialize_scripts(dir: &std::path::Path) -> std::io::Result<()> {
         ("gen-latest-json.sh", GEN_LATEST_SH),
         ("install-app.sh", INSTALL_APP_SH),
         ("launch-app.sh", LAUNCH_APP_SH),
+        ("core-patch.sh", CORE_PATCH_SH),
     ] {
         let path = dir.join(name);
         std::fs::write(&path, body)?;
