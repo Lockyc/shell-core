@@ -89,7 +89,7 @@ and the app commits a three-line `scripts/tooling.env` (see `scripts/tooling.env
 ## Development
 
 ```
-just gate       # pre-merge: fmt check + clippy + tests
+just gate       # pre-merge: zero-dep + fmt check + clippy + tests
 just test       # the test suite
 just zero-dep   # prove the default feature set still pulls no dependencies
 ```
