@@ -13,7 +13,7 @@
 #
 # The release artifact is a UNIVERSAL binary (arm64 + x86_64) — one bundle both architectures run,
 # so a release cut on either kind of Mac serves every user and latest.json can point both platform
-# keys at the same tarball. This is a release-only target: `just build`/`just deploy`/install.sh
+# keys at the same tarball. This is a release-only target: `just build`/`just install`/install.sh
 # stay host-arch, which is all a local install needs and is half the compile.
 set -euo pipefail
 source "$(dirname "$0")/tooling.env"
@@ -52,7 +52,7 @@ fi
 
 # A release artifact MUST be signed + notarized — an unsigned zip is Gatekeeper-blocked on
 # other Macs, so refuse rather than ship one that looks official but won't open. (Contributors
-# building for local use go through `just build`/`just deploy`, which tolerate unsigned.)
+# building for local use go through `just build`/`just install`, which tolerate unsigned.)
 if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
   echo "release: APPLE_SIGNING_IDENTITY is unset — the build would be unsigned/un-notarized." >&2
   echo "         Set APPLE_SIGNING_IDENTITY + APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID" >&2
@@ -78,7 +78,7 @@ fi
 echo "→ building + notarizing ${APP_NAME} $VERSION (cargo tauri build --target $TARGET) …"
 # createUpdaterArtifacts is enabled here via --config, NOT in the committed tauri.conf.json: baking
 # it in makes every `cargo tauri build` demand TAURI_SIGNING_PRIVATE_KEY, which breaks keyless
-# from-source builds (install.sh / just build / just deploy). Release-only, so those stay keyless.
+# from-source builds (install.sh / just build / just install). Release-only, so those stay keyless.
 ( cd "$TAURI_CRATE_DIR" && cargo tauri build --target "$TARGET" --config '{"bundle":{"createUpdaterArtifacts":true}}' )
 [ -d "$APP" ] || { echo "release: bundle not found at $APP" >&2; exit 1; }
 

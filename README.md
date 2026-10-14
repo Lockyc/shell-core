@@ -18,7 +18,7 @@ app — extracted once so a new sibling app inherits it instead of copy-pasting 
 
 It carries two concerns, split by Cargo feature so a build-dependency stays light:
 
-- **Build/release tooling (default, zero-dependency).** The four release/deploy scripts live here
+- **Build/release tooling (default, zero-dependency).** The four release/install scripts live here
   in `scripts/` as the source of truth, embedded as string constants (`RELEASE_SH`,
   `GEN_LATEST_SH`, `INSTALL_APP_SH`, `LAUNCH_APP_SH`). A consuming app's `build.rs` writes them into
   its own `scripts/` (git-ignored) — the same embed-and-materialize pattern chrome-core uses for its

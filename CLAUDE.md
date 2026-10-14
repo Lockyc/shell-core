@@ -19,11 +19,11 @@ shell-core is the home for app-agnostic **shell + tooling**: anything identical 
 regardless of what it hosts. It is NOT a place to abstract things that merely *look* similar.
 
 **In:**
-- The release/deploy scripts (`scripts/release.sh`, `gen-latest-json.sh`, `install-app.sh`,
+- The release/install scripts (`scripts/release.sh`, `gen-latest-json.sh`, `install-app.sh`,
   `launch-app.sh`) — generic, param-driven, embedded + materialized (below). `install-app.sh` and
   `launch-app.sh` are a deliberate pair: installing never launches ("the caller decides"), and
   launching is its own script because **`open` forwards the caller's whole environment to the app**,
-  so a bare `open` in a deploy recipe runs the app in a terminal's environment that no real launch
+  so a bare `open` in an install recipe runs the app in a terminal's environment that no real launch
   ever reproduces. `launch-app.sh` wraps it in `env -i` to get the launchd GUI-session environment
   instead. Its header carries the full footgun — don't re-derive it in a consuming app's justfile.
   `release.sh` builds `--target universal-apple-darwin`, so every consuming app's release artifact
@@ -34,7 +34,7 @@ regardless of what it hosts. It is NOT a place to abstract things that merely *l
     quiet** (no error, no update bar, no log) for every user on the missing architecture, so the
     breakage is invisible from the machine that cut the release. Both entries carry the same
     signature because they name the same universal tarball; that is not redundancy to collapse.
-  - Release-only: `just build`/`just deploy`/`install.sh` stay host-arch, which is all a local
+  - Release-only: `just build`/`just install`/`install.sh` stay host-arch, which is all a local
     install needs and is half the compile.
 - `build_stamp()` — git sha/date → `BUILD_GIT_SHA`/`BUILD_DATE` for the About box.
 - **The shared tab-unload policy** (`tabs::pick_live_neighbour`, default surface — no `runtime`

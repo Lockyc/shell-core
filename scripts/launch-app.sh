@@ -10,14 +10,14 @@
 # FOOTGUN — why this exists rather than a bare `open`:
 #   `open` looks like a clean LaunchServices launch, and the process *parentage* is genuinely clean
 #   (the app comes up under launchd, PPID 1, not as a child of the shell). But `open` FORWARDS THE
-#   CALLER'S FULL ENVIRONMENT to the launched app. Deploying from a terminal therefore hands the app
+#   CALLER'S FULL ENVIRONMENT to the launched app. Installing from a terminal therefore hands the app
 #   that terminal's context — TERM/TERM_PROGRAM/TERMINFO, GHOSTTY_*, TMUX*, ATUIN_*/STARSHIP_*
 #   session keys, any agent/tooling vars, and SHELL — none of which are present when a user launches
-#   the app normally. So `just deploy` produces an app running in an environment that no real launch
+#   the app normally. So `just install` produces an app running in an environment that no real launch
 #   ever reproduces, and bugs appear (or vanish) purely by launch method.
 #
 #   It bites hardest in a terminal host, which gives every terminal surface's shell its own
-#   environment verbatim: a leaked SHELL means tabs open the *deploying* shell instead of the
+#   environment verbatim: a leaked SHELL means tabs open the *installing* shell instead of the
 #   login shell, and leaked TMUX/GHOSTTY vars make nested-session detection misfire. An app can
 #   scrub specific vars it knows about (TMUX/TMUX_PANE, GHOSTTY_RESOURCES_DIR), but it cannot
 #   chase an open-ended set — the fix belongs at the launch.
@@ -26,7 +26,7 @@
 #   verified byte-for-byte identical to a Spotlight launch (same key set, zero leaked vars).
 #   Absolute paths below are required — there is no PATH left to resolve them with.
 #
-# Verify at any time by comparing a deploy-launched process against a Spotlight-launched one:
+# Verify at any time by comparing an install-launched process against a Spotlight-launched one:
 #   ps eww -p "$(pgrep -f "/Applications/${APP_NAME}.app/Contents/MacOS/" | head -1)"
 set -euo pipefail
 source "$(dirname "$0")/tooling.env"
