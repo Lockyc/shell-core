@@ -10,33 +10,28 @@
 </p>
 
 curator (browser keeper-tabs), warden (terminals), and lector (local doc sites) are sibling macOS
-Tauri apps. They already share a **view** ([chrome-core](https://github.com/Lockyc/chrome-core))
-and **config primitives** ([config-core](https://github.com/Lockyc/config-core)). `shell-core` is
-the third shared layer: the
-**build/release tooling** and the sliver of **Tauri runtime setup** that is identical for any such
-app — extracted once so a new sibling app inherits it instead of copy-pasting (and drifting).
+Tauri apps. `shell-core` holds their shared **build/release tooling** and **Tauri runtime setup**,
+alongside [chrome-core](https://github.com/Lockyc/chrome-core) (the view) and
+[config-core](https://github.com/Lockyc/config-core) (config primitives).
 
-It carries two concerns, split by Cargo feature so a build-dependency stays light:
+It has two parts, split by Cargo feature:
 
-- **Build/release tooling (default, zero-dependency).** The scripts live here in `scripts/` as the
-  source of truth: `release.sh` (the one-command release — build + notarize, then tag, fast-forward
-  `main`, push and publish the GitHub release with its assets), the updater-manifest, install and
-  launch helpers, and `core-patch.sh` (the shared-core `[patch]` dev/pin loop). A consuming app's
-  `build.rs` writes them into its own `scripts/` (git-ignored) via `materialize_scripts` — the same
-  embed-and-materialize pattern chrome-core uses for its CSS/JS. The scripts are **generic**; every
-  app-specific value is read from a tracked per-app `scripts/tooling.env` (`scripts/tooling.env.example`). `build_stamp()`
+- **Build/release tooling (default, zero-dependency).** The scripts in `scripts/`: `release.sh`
+  (the one-command release — build + notarize, then tag, fast-forward `main`, push and publish the
+  GitHub release with its assets), the updater-manifest, install and launch helpers, and
+  `core-patch.sh` (the shared-core `[patch]` dev/pin loop). A consuming app's `build.rs` writes them
+  into its own `scripts/` (git-ignored) via `materialize_scripts`. App-specific values are read
+  from a tracked per-app `scripts/tooling.env` (`scripts/tooling.env.example`). `build_stamp()`
   is the other build-time helper — a git sha/date stamp for the About box. `tabs::pick_live_neighbour`
   (which sibling tab becomes active after one unloads) also sits on this zero-dependency surface.
-- **Runtime (`runtime` feature).** The app-shell every app would otherwise hand-roll:
-  - `register_plugins(builder, config_path, skip_labels)` installs the plugins every app registers
-    identically — `geometry`, the updater, and the process plugin (for the updater's relaunch) — and
+- **Runtime (`runtime` feature).** The shared app-shell:
+  - `register_plugins(builder, config_path, skip_labels)` installs the shared plugins — `geometry`,
+    the updater, and the process plugin (for the updater's relaunch) — and
     the custom protocols that serve the home and detach surfaces.
   - `geometry` persists each window's size and position in AppKit points, clamped to the target
     monitor's work area on restore, and never recorded while a window is fullscreen or minimized.
-    The file is scoped to the app's config path (`geometry_filename`, over the reusable
-    `config_scoped_filename`). It replaces `tauri-plugin-window-state`, whose physical-pixel model is
-    wrong across monitors of differing scale factor — a rect saved on a 2x display and applied on a
-    1x one comes back out by the ratio.
+    The file is scoped to the app's config path (`geometry_filename`). Restored geometry is
+    correct across monitors with different scale factors.
   - `menu::build_spine()` builds the **menu spine** — the App submenu (About, Check for Updates…),
     the Config submenu (Edit Config / Reveal in Finder), and the Window submenu (a checked
     per-window selector), plus the Close Tab / Pop Out Tab / Find in Sidebar items and the
@@ -45,30 +40,27 @@ It carries two concerns, split by Cargo feature so a build-dependency stays ligh
     menu. `menu::build_tab_nav()` builds the tab-navigation block (Previous/Next Tab, ⌘1–⌘9).
   - `home::{home_state, show_home, close_home}` is the **home surface** — what an app shows when it
     would otherwise have no window (no config / a load error / a valid config's window list), so a
-    fresh install never launches to nothing. shell-core owns the surface; the app wires the actions
-    (the "Create a starter config" button is the app's own command, which is how shell-core stays
-    free of any dependency on config-core).
+    fresh install never launches to nothing. shell-core owns the surface; the app wires the
+    actions, including the "Create a starter config" button.
   - `detach` pops a tab out into its own window — the label scheme and the banner-shell page; the
     app moves the tab's content.
   - `compositing` places content webviews into the chrome's reported hole (`HoleRect`,
     `layout_webviews`) — curator and lector.
-  - `watch` is the config-file hot-reload watcher (parent-dir watch, file-name match, format-on-save
-    echo swallowed); the app parses — curator and lector.
+  - `watch` is the config-file hot-reload watcher (it ignores the app's own format-on-save
+    writes); the app parses — curator and lector.
   - `mouse_nav` drives WKWebView back/forward from the mouse side buttons, and `progress_bar` draws
     the page-load bar on each content webview — curator and lector.
 
 ## Status
 
-In use by warden, curator, and lector. **Deliberately NOT shared** (each diverges per app): IPC
-fan-out, warden's config watcher and native compositing, the apps' own menu *items* (only the spine above is shared), and the chrome-caller
-command gate (curator-only — warden hosts no content webviews at all, and lector's remote-origin
-content webviews are denied by Tauri's own IPC dispatch without needing an explicit gate).
+In use by warden, curator, and lector. Kept per app, not here: IPC fan-out, warden's config
+watcher and native compositing, each app's own menu items, and curator's chrome-caller command
+gate.
 
 ## How it's consumed
 
-Each app pins shell-core by git rev, using the light default features for `build.rs` and the
-`runtime` feature for the app. Under Cargo's resolver 2 the two resolve features independently, so
-the build-dependency never pulls in tauri:
+Each app pins shell-core by git rev: default features for `build.rs` (no tauri), the `runtime`
+feature for the app:
 
 ```toml
 [build-dependencies]
