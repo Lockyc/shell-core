@@ -3,7 +3,6 @@
 <p align="center">The shared Tauri app-shell + release tooling for <a href="https://github.com/Lockyc/curator">curator</a>, <a href="https://github.com/Lockyc/warden">warden</a>, and <a href="https://github.com/Lockyc/lector">lector</a> — one release pipeline, many apps.</p>
 
 <p align="center">
-  <a href="https://github.com/lockyc/shell-core/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/lockyc/shell-core/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-555">
   <img alt="Rust" src="https://img.shields.io/badge/built%20with-Rust-CE412B?logo=rust&logoColor=white">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Lockyc/shell-core"></a>

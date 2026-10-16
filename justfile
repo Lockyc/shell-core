@@ -49,7 +49,7 @@ zero-dep:
     fi
     echo "✓ default features are zero-dependency"
 
-# Non-mutating pre-merge gate: zero-dep, rustfmt check, clippy, and the test suite. What CI would run.
+# Non-mutating pre-merge gate: zero-dep, rustfmt check, clippy, and the test suite.
 [group("check")]
 gate: zero-dep
     cargo fmt --check
