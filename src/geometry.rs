@@ -368,7 +368,11 @@ fn flush<R: Runtime>(app: &AppHandle<R>) {
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
-    let _ = std::fs::write(dir.join(&state.filename), payload);
+    // Atomic: a kill mid-write leaves the previous store, not a partial one decode() discards whole.
+    let tmp = dir.join(format!("{}.tmp", state.filename));
+    if std::fs::write(&tmp, payload).is_ok() {
+        let _ = std::fs::rename(&tmp, dir.join(&state.filename));
+    }
 }
 
 /// Build the geometry plugin. `filename` comes from [`geometry_filename`]; `skip_labels` are an
