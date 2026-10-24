@@ -5,9 +5,10 @@
 //! name** (macOS FSEvents reports canonical `/private/var/...` paths while the caller holds a
 //! `/var/...` symlink path, so exact-path equality misses every event). On each matching change it reads the
 //! file and hands the raw source to `on_change`; shell-core never parses (config-agnostic — no
-//! `config-core` edge). `on_change` returns `Some(bytes)` when it wrote the file itself (a
-//! format-on-save rewrite), and the watcher swallows the echo event those bytes trigger so a user
-//! save reloads exactly once.
+//! `config-core` edge). It delivers a file's contents only when they differ from what it last
+//! delivered — or from what `on_change` last wrote (`Some(bytes)`, a format-on-save rewrite) — so
+//! one save's burst of events, and the echo of the app's own write, reload exactly once, and a
+//! re-save of identical bytes reloads nothing.
 //!
 //! warden is **not** a consumer: its own `Watcher` parses inside, drives a slow root-scan +
 //! main-thread reconcile, and relies on `format_file`'s diff-guard rather than an echo-swallow
@@ -47,10 +48,10 @@ pub fn watch_config(
             return;
         }
         let want_name = path.file_name().map(|n| n.to_owned());
-        // The exact bytes of on_change's most recent self-write, so its echo is swallowed and a
-        // user save reloads exactly once. `take()` clears the marker either way, so a missed echo
-        // costs at worst one redundant no-op reload.
-        let mut self_write: Option<String> = None;
+        // The bytes the app now holds: the last delivered source, or on_change's own write of it.
+        // A read that matches is a repeat event (FSEvents and atomic renames deliver several per
+        // save) or that write's echo, and reloading identical bytes is a no-op for every consumer.
+        let mut current: Option<String> = None;
         for res in rx {
             let Ok(event) = res else { continue };
             if !event
@@ -63,10 +64,10 @@ pub fn watch_config(
             let Ok(src) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            if self_write.take().as_deref() == Some(src.as_str()) {
+            if current.as_deref() == Some(src.as_str()) {
                 continue;
             }
-            self_write = on_change(&src);
+            current = Some(on_change(&src).unwrap_or(src));
         }
     });
 }
@@ -112,6 +113,43 @@ mod tests {
                 Err(_) => panic!("timed out waiting for the 'second' change"),
             }
         }
+    }
+
+    #[test]
+    fn delivers_each_distinct_content_once() {
+        // Several writes of the same bytes (a save's event burst, a re-save) reload once; a real
+        // change after them still reloads.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write(&path, "first");
+
+        let (tx, rx) = mpsc::channel();
+        watch_config(path.clone(), move |src| {
+            let _ = tx.send(src.to_string());
+            None
+        });
+
+        std::thread::sleep(Duration::from_millis(200));
+        for _ in 0..3 {
+            write(&path, "same");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        write(&path, "changed");
+
+        let mut got = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !got.iter().any(|v: &String| v == "changed") {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match rx.recv_timeout(remaining) {
+                Ok(v) => got.push(v),
+                Err(_) => panic!("timed out; got {got:?}"),
+            }
+        }
+        assert_eq!(
+            got.iter().filter(|v| *v == "same").count(),
+            1,
+            "got {got:?}"
+        );
     }
 
     #[test]
