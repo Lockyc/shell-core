@@ -11,7 +11,8 @@
 //!   `scripts/tooling.env.example`). [`build_stamp`] is the other build-time helper: a git
 //!   sha/date stamp for the About box.
 //! - **Runtime (`runtime` feature).** [`register_plugins`] installs the plugins every app registers
-//!   identically (the updater + process plugins) and the home + detach surfaces' custom protocols.
+//!   identically (geometry, the updater, and the process plugin) and the home + detach surfaces'
+//!   custom protocols.
 //!   [`geometry`] persists each window's size/position — in AppKit points, clamped to the target
 //!   monitor's work area on restore, and never recorded while a window is fullscreen or minimized.
 //!   It replaces `tauri-plugin-window-state`, whose physical-pixel model is wrong across monitors
