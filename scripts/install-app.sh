@@ -18,8 +18,13 @@ dest="${APP_DEST:-/Applications/${APP_NAME}.app}"
 [[ "$dest" == *.app ]] || { echo "install-app.sh: refusing — dest is not an .app bundle: $dest" >&2; exit 1; }
 
 osascript -e "quit app \"${APP_NAME}\"" 2>/dev/null || true
+# The app flushes its window geometry on exit; give the quit up to ~5s to finish that before a
+# kill, which would lose or truncate it.
+for _ in $(seq 1 50); do
+    pgrep -f "${dest}/" >/dev/null 2>&1 || break
+    sleep 0.1
+done
 pkill -f "${dest}/" 2>/dev/null || true
-sleep 1
 
 rm -rf "$dest"
 mkdir -p "$(dirname "$dest")"
