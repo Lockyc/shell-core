@@ -1,7 +1,7 @@
 //! The detached-tab window: label scheme + the banner-shell surface a popped-out tab's window
-//! shows. Mirrors [`crate::home`] throughout — same custom-protocol-serves-a-static-page shape,
-//! same hand-rolled escaped-JSON payload, same reasons — so read that module's docs for the "why"
-//! behind each piece here.
+//! shows. Mirrors [`crate::home`] throughout — the same custom-protocol-serves-a-static-page shape
+//! (`home::serve_static`) and payload embedding (`home::payload_init_script`) — so read that
+//! module's docs for the "why" behind each piece here.
 //!
 //! - The **label scheme** (`DETACH_LABEL_PREFIX`/`detached_label`/`is_detached_label`/
 //!   `detach_token`) marks a window as a "popped out" tab so a consuming app's hot-reload
@@ -75,8 +75,8 @@ pub struct DetachSpec {
     pub width: f64,
     pub height: f64,
     /// Pane width ratios, left-to-right, for a content hole divided into vertical slices.
-    /// Empty or a single entry = one undivided hole, and the emitted payload is then byte-
-    /// identical to the pre-panes one — which is what keeps curator and lector unchanged.
+    /// Empty or a single entry = one undivided hole: no `panes` key in the payload, and the page
+    /// invokes `set_hole_rect { rect }` with no `pane` key.
     ///
     /// DELIBERATELY GENERIC: this is a layout fact (how many slices, how wide), not a terminal
     /// one. shell-core must not learn what a "split" is — the consuming app owns that concept
@@ -90,57 +90,30 @@ pub struct DetachSpec {
     pub pane_band: Option<[f64; 2]>,
 }
 
-/// Build the `window.__SHELL_DETACH__` payload `detach.html` reads: a small hand-rolled JSON
-/// literal (every string run through [`crate::home::js_string_escape`] — the same function
-/// `home::payload_json` uses, not a second copy). Same reasoning as that payload's: `serde_json`
-/// is a dependency now, but this is a fixed, one-way emission with no `Serialize` type worth
-/// defining for it. Only the page-relevant fields are embedded: `width`/`height` size the *window*
-/// at creation time, the page itself never reads them. `label` is the window's own Tauri label,
-/// which the page uses to drop a [`PANES_EVENT`] addressed to a sibling detached window
-/// (`emit_to` reaches every webview, so per-window events are stamped and filtered).
+/// Build the `window.__SHELL_DETACH__` payload `detach.html` reads. Only the page-relevant fields
+/// are embedded: `width`/`height` size the *window* at creation time, the page itself never reads
+/// them. `label` is the window's own Tauri label, which the page uses to drop a [`PANES_EVENT`]
+/// addressed to a sibling detached window (`emit_to` reaches every webview, so per-window events
+/// are stamped and filtered). `panes` serialises exactly as [`set_panes`] sends it.
 fn detach_payload_json(spec: &DetachSpec, app_name: &str, label: &str) -> String {
-    let colour = match &spec.colour {
-        Some(c) => format!("\"{}\"", crate::home::js_string_escape(c)),
-        None => "null".to_string(),
-    };
-    let panes = if spec.panes.len() > 1 {
-        let list = spec
-            .panes
-            .iter()
-            .map(|r| format!("{r}"))
-            .collect::<Vec<_>>()
-            .join(",");
-        format!(",\"panes\":[{list}]")
-    } else {
-        String::new()
-    };
-    let band = match spec.pane_band {
-        Some([lo, hi]) => format!(",\"paneBand\":[{lo},{hi}]"),
-        None => String::new(),
-    };
-    format!(
-        "{{\"appName\":\"{}\",\"title\":\"{}\",\"label\":\"{}\",\"colour\":{colour}{panes}{band}}}",
-        crate::home::js_string_escape(app_name),
-        crate::home::js_string_escape(&spec.title),
-        crate::home::js_string_escape(label),
-    )
+    let mut v = serde_json::json!({
+        "appName": app_name, "title": spec.title, "label": label, "colour": spec.colour,
+    });
+    if spec.panes.len() > 1 {
+        v["panes"] = serde_json::json!(spec.panes);
+    }
+    if let Some(band) = spec.pane_band {
+        v["paneBand"] = serde_json::json!(band);
+    }
+    v.to_string()
 }
 
-/// Register [`DETACH_SCHEME`], serving [`DETACH_HTML`] for any request. Mirrors
-/// [`crate::home::register_protocol`] exactly. Chained into
+/// Register [`DETACH_SCHEME`], serving [`DETACH_HTML`] for any request. Chained into
 /// [`register_plugins`](crate::register_plugins) alongside the home surface's protocol.
 pub(crate) fn register_detach_protocol<R: tauri::Runtime>(
     builder: tauri::Builder<R>,
 ) -> tauri::Builder<R> {
-    builder.register_uri_scheme_protocol(DETACH_SCHEME, |_ctx, _req| {
-        tauri::http::Response::builder()
-            .header(
-                tauri::http::header::CONTENT_TYPE,
-                "text/html; charset=utf-8",
-            )
-            .body(DETACH_HTML.as_bytes().to_vec())
-            .expect("static response body")
-    })
+    crate::home::serve_static(builder, DETACH_SCHEME, DETACH_HTML)
 }
 
 /// The event [`set_panes`] emits to a live detached window's page. Payload:
@@ -238,8 +211,6 @@ where
         .parse()
         .expect("DETACH_SCHEME url is a fixed, valid literal");
 
-    // The payload is embedded as an escaped JS STRING (not a raw object literal), exactly like
-    // `home::show_home`'s `window.__SHELL_HOME__` — the page `JSON.parse`s it.
     let window =
         tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::CustomProtocol(url))
             .title(&spec.title)
@@ -247,9 +218,9 @@ where
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true)
             .transparent(true)
-            .initialization_script(format!(
-                "window.__SHELL_DETACH__ = \"{}\";",
-                crate::home::js_string_escape(&payload)
+            .initialization_script(crate::home::payload_init_script(
+                "__SHELL_DETACH__",
+                &payload,
             ))
             .build()?;
 
@@ -406,10 +377,9 @@ mod tests {
             pane_band: Some([0.1, 0.9]),
         };
         let json = detach_payload_json(&spec, "warden", "shell-detach:x");
-        assert!(
-            json.contains("\"panes\":[0.3,0.7],\"paneBand\":[0.1,0.9]"),
-            "got: {json}"
-        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["panes"], serde_json::json!([0.3, 0.7]), "got: {json}");
+        assert_eq!(v["paneBand"], serde_json::json!([0.1, 0.9]), "got: {json}");
     }
 
     #[test]
