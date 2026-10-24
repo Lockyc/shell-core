@@ -111,9 +111,14 @@ pub mod progress_bar;
 pub mod geometry;
 
 /// Emit a build stamp so the About box can confirm the installed app matches a given commit. Prints
-/// `cargo:rustc-env=BUILD_GIT_SHA=<short>[-dirty]` and `cargo:rustc-env=BUILD_DATE=<YYYY-MM-DD>`,
-/// plus a `rerun-if-changed` on the git ref log so it re-stamps on every commit/checkout. Call from
-/// a consumer's `build.rs`; read the values with `env!("BUILD_GIT_SHA")` / `env!("BUILD_DATE")`.
+/// `cargo:rustc-env=BUILD_GIT_SHA=<short>[-dirty]` and `cargo:rustc-env=BUILD_DATE=<YYYY-MM-DD>`.
+/// Call from a consumer's `build.rs`; read the values with `env!("BUILD_GIT_SHA")` /
+/// `env!("BUILD_DATE")`.
+///
+/// The stamp is re-evaluated on **every** build: `-dirty` depends on the whole working tree (an
+/// unstaged edit, a stage, a stash pop), which no single `rerun-if-changed` path captures, so the
+/// script reruns on a path that never exists. A stamp claiming a clean tree for a dirty build is
+/// worse than none; the cost is re-running the consumer's `build.rs` each build.
 ///
 /// Zero-dependency (shells `git`/`date`) so it is safe to call from a light `[build-dependencies]`.
 pub fn build_stamp() {
@@ -138,11 +143,8 @@ pub fn build_stamp() {
 
     println!("cargo:rustc-env=BUILD_GIT_SHA={sha}");
     println!("cargo:rustc-env=BUILD_DATE={date}");
-    // Re-stamp after any git ref update (commit/checkout). `--git-path` resolves logs/HEAD from any
-    // crate depth (warden's crate is two levels down, curator's one), so no per-app relative path.
-    if let Some(logs) = git(&["rev-parse", "--git-path", "logs/HEAD"]) {
-        println!("cargo:rerun-if-changed={logs}");
-    }
+    // A missing path is always "changed", so cargo reruns the script every build (see above).
+    println!("cargo:rerun-if-changed=shell-core-build-stamp.always-rerun");
 }
 
 #[cfg(feature = "runtime")]
