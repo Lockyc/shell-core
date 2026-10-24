@@ -83,67 +83,54 @@ pub fn home_state(
     })
 }
 
-/// Escape a string for embedding inside a double-quoted JS (and, since the escapes we emit are a
-/// subset of JSON's, JSON) string literal.
-///
-/// `pub(crate)` so [`crate::detach`] reuses it for its own payload builder instead of carrying a
-/// second copy — one source of truth for the escaping both surfaces need.
-pub(crate) fn js_string_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 8);
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out
+/// The init script that hands a page its payload: the JSON text embedded as a JS string literal
+/// (`serde_json` quoting a string is a valid JS string), which the page `JSON.parse`s. Shared by
+/// the home and detach surfaces so their embedding can't diverge.
+pub(crate) fn payload_init_script(global: &str, payload: &str) -> String {
+    let literal = serde_json::to_string(payload).expect("a string always serialises");
+    format!("window.{global} = {literal};")
 }
 
-/// One `WindowEntry` as a JSON object literal.
-fn window_entry_json(w: &WindowEntry) -> String {
-    let colour = match &w.colour {
-        Some(c) => format!("\"{}\"", js_string_escape(c)),
-        None => "null".to_string(),
-    };
-    format!(
-        "{{\"id\":\"{}\",\"title\":\"{}\",\"open\":{},\"colour\":{colour}}}",
-        js_string_escape(&w.id),
-        js_string_escape(&w.title),
-        w.open,
-    )
-}
-
-/// Build the `window.__SHELL_HOME__` payload `home.html` reads: a small hand-rolled JSON literal
-/// (every string run through [`js_string_escape`]). `serde_json` is a dependency now (the geometry
-/// store parses with it — see `geometry.rs`), but this payload is a fixed, three-shape, one-way
-/// emission with no need to ever be parsed back, so hand-rolling it stays simpler than defining a
-/// `Serialize` type for it.
+/// Build the `window.__SHELL_HOME__` payload `home.html` reads.
 fn payload_json(state: &HomeState, app_name: &str) -> String {
-    let app = js_string_escape(app_name);
-    match state {
-        HomeState::NoConfig { path } => format!(
-            "{{\"appName\":\"{app}\",\"state\":\"no_config\",\"path\":\"{}\"}}",
-            js_string_escape(path)
-        ),
-        HomeState::Broken { path, error } => format!(
-            "{{\"appName\":\"{app}\",\"state\":\"broken\",\"path\":\"{}\",\"error\":\"{}\"}}",
-            js_string_escape(path),
-            js_string_escape(error)
-        ),
-        HomeState::Windows { windows } => {
-            let items = windows
-                .iter()
-                .map(window_entry_json)
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("{{\"appName\":\"{app}\",\"state\":\"windows\",\"windows\":[{items}]}}")
+    let v = match state {
+        HomeState::NoConfig { path } => {
+            serde_json::json!({ "appName": app_name, "state": "no_config", "path": path })
         }
-    }
+        HomeState::Broken { path, error } => serde_json::json!({
+            "appName": app_name, "state": "broken", "path": path, "error": error,
+        }),
+        HomeState::Windows { windows } => {
+            let windows: Vec<_> = windows
+                .iter()
+                .map(|w| {
+                    serde_json::json!({
+                        "id": w.id, "title": w.title, "open": w.open, "colour": w.colour,
+                    })
+                })
+                .collect();
+            serde_json::json!({ "appName": app_name, "state": "windows", "windows": windows })
+        }
+    };
+    v.to_string()
+}
+
+/// Register a custom protocol serving the fixed `html` for any request — the home and detach
+/// surfaces each register one through this.
+pub(crate) fn serve_static<R: tauri::Runtime>(
+    builder: tauri::Builder<R>,
+    scheme: &'static str,
+    html: &'static str,
+) -> tauri::Builder<R> {
+    builder.register_uri_scheme_protocol(scheme, move |_ctx, _req| {
+        tauri::http::Response::builder()
+            .header(
+                tauri::http::header::CONTENT_TYPE,
+                "text/html; charset=utf-8",
+            )
+            .body(html.as_bytes().to_vec())
+            .expect("static response body")
+    })
 }
 
 /// Open (or refresh) the home surface. Idempotent, mirroring warden's `show_launcher`: if it's
@@ -176,19 +163,14 @@ pub fn show_home<R: tauri::Runtime>(
     let url: tauri::Url = format!("{HOME_SCHEME}://localhost/")
         .parse()
         .expect("HOME_SCHEME url is a fixed, valid literal");
-    // The payload is embedded as an escaped JS STRING (not a raw object literal), exactly like
-    // curator's `window.__CURATOR_ERROR__` — the page `JSON.parse`s it. This keeps the init-script
-    // path and the refresh-event path (whose payload also arrives JS-side as a string, per Tauri's
-    // event serialization of a Rust `String`) identical instead of one being an object and the
-    // other a string to parse.
+    // The payload is embedded as a JS STRING (not a raw object literal) the page `JSON.parse`s,
+    // so the init-script path and the refresh-event path (whose payload also arrives JS-side as a
+    // string, per Tauri's event serialization of a Rust `String`) are parsed identically.
     tauri::WebviewWindowBuilder::new(app, HOME_LABEL, tauri::WebviewUrl::CustomProtocol(url))
         .title(app_name)
         .inner_size(560.0, 480.0)
         .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .initialization_script(format!(
-            "window.__SHELL_HOME__ = \"{}\";",
-            js_string_escape(&payload)
-        ))
+        .initialization_script(payload_init_script("__SHELL_HOME__", &payload))
         .build()?;
     Ok(())
 }
@@ -215,15 +197,7 @@ pub fn close_home<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
 pub(crate) fn register_protocol<R: tauri::Runtime>(
     builder: tauri::Builder<R>,
 ) -> tauri::Builder<R> {
-    builder.register_uri_scheme_protocol(HOME_SCHEME, |_ctx, _req| {
-        tauri::http::Response::builder()
-            .header(
-                tauri::http::header::CONTENT_TYPE,
-                "text/html; charset=utf-8",
-            )
-            .body(HOME_HTML.as_bytes().to_vec())
-            .expect("static response body")
-    })
+    serve_static(builder, HOME_SCHEME, HOME_HTML)
 }
 
 #[cfg(test)]
@@ -281,11 +255,14 @@ mod tests {
     }
 
     #[test]
-    fn escape_handles_quotes_backslashes_and_control_chars() {
-        assert_eq!(js_string_escape("a\"b"), "a\\\"b");
-        assert_eq!(js_string_escape("a\\b"), "a\\\\b");
-        assert_eq!(js_string_escape("a\nb"), "a\\nb");
-        assert_eq!(js_string_escape("a\u{1}b"), "a\\u0001b");
+    fn init_script_embeds_the_payload_as_one_js_string() {
+        let s = payload_init_script("__X__", "{\"a\":\"q\\\"\nz\"}");
+        let literal = s
+            .strip_prefix("window.__X__ = ")
+            .and_then(|r| r.strip_suffix(';'))
+            .expect("the assignment shape");
+        let back: String = serde_json::from_str(literal).expect("a valid string literal");
+        assert_eq!(back, "{\"a\":\"q\\\"\nz\"}");
     }
 
     #[test]

@@ -200,9 +200,8 @@
       // `.hole` (a sibling of the banner, which could never inherit a banner-scoped value).
       if (payload.colour) document.documentElement.style.setProperty('--accent', payload.colour);
 
-      // Ratios come from the payload; absent/short means one undivided hole, which is the
-      // pre-panes behaviour exactly — same single `set_hole_rect { rect }` call, no `pane`
-      // key — so a consumer that declares no panes is unaffected by this file changing.
+      // Ratios come from the payload; absent/short means one undivided hole: one
+      // `set_hole_rect { rect }` call with no `pane` key.
       // No cap here: how many panes is a consuming-app concept (warden's own type caps it at
       // 2), and shell-core must not learn what a "split" is — it lays out whatever ratios
       // arrive.
