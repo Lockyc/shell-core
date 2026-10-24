@@ -29,8 +29,7 @@ pub mod ids {
 /// The family's close accelerators.
 ///
 /// **⌘W closes a tab; ⌘⇧W closes the window.** Constants, not parameters: this is one convention
-/// for every app in the family, and one place is what stops it drifting — curator's ⌘W had drifted
-/// onto Close Window, which is precisely what a per-app copy of a convention buys you. Every app
+/// for every app in the family, and one place is what stops a per-app copy drifting. Every app
 /// has an `unload_tab` and all three mean the same by it (unload the active tab to cold; it
 /// respawns on next select), so there is nothing app-specific left to parameterise.
 pub const ACCEL_CLOSE_TAB: &str = "Cmd+KeyW";
@@ -49,8 +48,7 @@ pub const ACCEL_POP_OUT_TAB: &str = "Shift+Cmd+KeyO";
 pub const ACCEL_FIND_IN_SIDEBAR: &str = "Shift+Cmd+KeyF";
 
 /// The family's tab-cycling accelerators — ⌘⇧[ / ⌘⇧] , the browser convention. Constants for the
-/// same reason as the close accelerators: one convention, one place, no per-app copy to drift
-/// (warden and curator had already drifted to different spellings of the same chord).
+/// same reason as the close accelerators: one convention, one place, no per-app copy to drift.
 pub const ACCEL_TAB_PREV: &str = "Shift+Cmd+BracketLeft";
 pub const ACCEL_TAB_NEXT: &str = "Shift+Cmd+BracketRight";
 
@@ -391,8 +389,7 @@ mod tests {
     #[test]
     fn the_close_accelerators_are_the_family_standard() {
         // ⌘W closes a TAB; ⌘⇧W closes the window. Pinned here because this is the one place the
-        // standard lives — curator's ⌘W had drifted onto Close Window, which is the bug that
-        // proved a per-app copy of this convention can't hold.
+        // standard lives.
         assert_eq!(ACCEL_CLOSE_TAB, "Cmd+KeyW");
         assert_eq!(ACCEL_CLOSE_WINDOW, "Shift+Cmd+KeyW");
     }

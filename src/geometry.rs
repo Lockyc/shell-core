@@ -414,8 +414,8 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
             // FOOTGUN: don't record a restoring window at its creation size. tao applies `set_size`
             // asynchronously, and the restore's first move delivers `Moved`/`Resized` while the
             // window is still at the builder's default size; no event fires when the resize lands.
-            // Recording those snapshots cached the default over the saved rect, so a window closed
-            // mid-session reopened at its default size. The resize can't be waited on either — it
+            // Recording those snapshots would cache the default over the saved rect. The resize
+            // can't be waited on either — it
             // lands after a main-queue block queued behind it. So `creation` holds the pre-restore
             // rect, snapshots still at that size are skipped, and the first one at any other size
             // (the restore landed, or the user resized) clears it. Meanwhile the cache keeps the
@@ -596,8 +596,7 @@ mod tests {
 
     /// With no work area at all (primary monitor unresolvable), there is nothing to clamp
     /// against: only the `MIN_DIM` floor applies, and a size already above it passes through
-    /// unclamped — this is the no-primary-monitor arm the review flagged as applying the stored
-    /// size with no bound whatsoever.
+    /// unclamped — the no-primary-monitor arm, which applies the stored size with no bound.
     #[test]
     fn fit_restored_size_only_floors_when_no_work_area() {
         let saved = rect(10.0, 20.0, 6000.0, 5000.0);

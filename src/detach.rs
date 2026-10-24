@@ -189,10 +189,9 @@ pub fn set_focused_hole<R: tauri::Runtime>(
 /// from that rather than from the `spec` it passed in.** By the time the closure runs,
 /// [`crate::geometry`] has already restored this tab's remembered size over `spec`'s — its
 /// `on_window_ready` hook runs inside `build()` — so `spec.width`/`spec.height` describe only the
-/// never-popped-before case. Every consumer computes a birth rect for its docked content, and all
-/// three got this wrong from the constants before the size was passed in: handing over the fact
-/// beats documenting the trap, since a caller cannot use the stale value without reaching past the
-/// one it was given. Falls back to `spec`'s size if the window's geometry can't be queried.
+/// never-popped-before case. Every consumer computes a birth rect for its docked content; handing
+/// over the real size means a caller cannot use the stale value without reaching past the one it
+/// was given. Falls back to `spec`'s size if the window's geometry can't be queried.
 pub fn open_detached<R, F>(
     app: &tauri::AppHandle<R>,
     token: &str,

@@ -15,8 +15,32 @@ summary = "The Tauri runtime sliver identical for any such app: register_plugins
 
 [[provides]]
 name    = "menu-spine"
-summary = "menu::build_spine() — the App/Config/Window submenus (About, Check for Updates…, Edit/Reveal Config, a checked per-window selector) identical across the family, plus the family-standard Close Tab/Close Window accelerators (⌘W/⌘⇧W) as constants so they can't drift per app again. Returns submenus for the app to interleave with its own genuinely-per-app items (curator's Edit/Tabs, warden's Tab digit-mode jumps + Reopen Last Closed)."
+summary = "menu::build_spine() — the App/Config/Window submenus (About, Check for Updates…, Edit/Reveal Config, a checked per-window selector) identical across the family — and menu::build_tab_nav() (⌘⇧[/⌘⇧] tab cycling, ⌘1–9 jumps and the ⌘1/⌘2 cycle aliases), plus the family-standard Close Tab, Close Window, Pop Out Tab and Find in Sidebar accelerators as constants. Returns submenus for the app to interleave with its own per-app items (curator's Edit/Tabs, warden's Reopen Last Closed)."
 
 [[provides]]
 name    = "home-surface"
-summary = "home::{home_state, show_home, close_home} — the surface an app shows when it would otherwise have no window (no config / a load error / a valid config's window list), so the app is never stranded invisible. Replaces curator's former error window and warden's former launcher, two half-implementations of the same idea. Never touches config-core itself — the consuming app wires the \"Create a starter config\" action, keeping the cores mutually independent."
+summary = "home::{home_state, show_home, close_home} — the surface an app shows when it would otherwise have no window (no config / a load error / a valid config's window list), so the app is never stranded invisible. Never touches config-core itself — the consuming app wires the \"Create a starter config\" action, keeping the cores mutually independent."
+
+[[provides]]
+name    = "detach-surface"
+summary = "detach::{open_detached, wire_return, set_panes, set_focused_hole} — a popped-out tab's own window: the label scheme, the banner-shell page and its content hole (optionally divided into panes), and the return-on-close hook the app redocks through."
+
+[[provides]]
+name    = "compositing"
+summary = "compositing::{HoleRect, CHROME_W, initial_hole, layout_webviews} — the hole-punch layout curator and lector share: the sidebar chrome is the window's main webview and Rust positions the content webviews in the hole it reports."
+
+[[provides]]
+name    = "config-watch"
+summary = "watch::watch_config — the config-file hot-reload watcher curator and lector share: a parent-directory watch matched by file name (atomic-save and FSEvents safe) that swallows the echo of its own format-on-save write."
+
+[[provides]]
+name    = "mouse-nav"
+summary = "mouse_nav — mouse side-button back/forward navigation for content webviews (WKWebView acts on neither), via a local NSEvent monitor driving the focused webview's history."
+
+[[provides]]
+name    = "progress-bar"
+summary = "progress_bar::install — a thin determinate loading bar pinned to the top of each content WKWebView, driven by WebKit's own progress signal, in the app's accent colour."
+
+[[provides]]
+name    = "tab-unload-policy"
+summary = "tabs::pick_live_neighbour — the one policy every app uses for which sibling becomes active after a tab unloads: the nearest loaded neighbour, else none."
