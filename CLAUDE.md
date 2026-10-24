@@ -366,7 +366,7 @@ vendored source.**
   precondition exactly: tauri 2.11.5, and its capability grants only `core:*`/`updater`/`process` —
   zero app-command permissions). It can stay as defense-in-depth or be narrowed to a
   local-surface-only screen — a **security-sensitive judgment call left to the maintainer**, not a
-  mechanical cleanup (see the lift-plan's security section).
+  mechanical cleanup.
 - **This bypass does NOT extend to core *plugin* commands** (`core:event`, `core:window`, updater,
   process) — those are gated by their own default-denied permission set regardless of the app
   manifest, so each app still ships a `capabilities/*.json` granting the sidebar exactly the plugin
