@@ -4,8 +4,10 @@
 //! drives it); the app calls [`install`] once per content webview and supplies the accent colour.
 //!
 //! **Determinate, driven by WebKit's own signal.** The bar reads its host WKWebView's
-//! `estimatedProgress` (0→1) and fills left→right; at 100% it fades out (alpha decay) and hides; a
-//! new navigation drops `estimatedProgress` low again so the bar re-shows on its own.
+//! `estimatedProgress` (0→1) and fills left→right; once the load ends it fades out (alpha decay) and
+//! hides; a new navigation drops `estimatedProgress` low again so the bar re-shows on its own. A load
+//! ends at 100% *or* when `isLoading` goes false short of it — a navigation that turns into a
+//! download or is abandoned leaves `estimatedProgress` parked mid-way indefinitely.
 //!
 //! **Poll, not KVO.** A view-owned block `NSTimer` reads progress from `bar.superview()`
 //! (== the WKWebView) each tick. KVO is avoided deliberately: `addObserver:forKeyPath:` on the
@@ -18,7 +20,7 @@
 //!
 //! **Two timers, because a load is rare and an app is idle almost always.** A *watcher* runs
 //! permanently at [`IDLE_TICK_SECS`] with a 50% `setTolerance:` (so macOS can coalesce it with other
-//! wakeups) and does nothing but notice `estimatedProgress` dropping below 1.0. Only then does it
+//! wakeups) and does nothing but notice a load starting. Only then does it
 //! schedule the *animator* at [`ACTIVE_TICK_SECS`] to draw the fill and the fade-out; the animator
 //! invalidates itself the moment the fade completes. A shared `animating` flag (main-thread `Cell`)
 //! keeps the watcher from stacking duplicate animators.
@@ -92,6 +94,13 @@ pub fn install(webview: &tauri::Webview, accent: (f64, f64, f64, f64)) {
         // so the watcher never stacks two animators on one bar. Main thread only, hence `Cell`.
         let animating = Rc::new(Cell::new(false));
 
+        // The host's in-flight progress, or `None` once its load has ended (see the module docs).
+        let in_flight = |host: &NSView| -> Option<f64> {
+            let progress: f64 = msg_send![host, estimatedProgress];
+            let loading: bool = msg_send![host, isLoading];
+            (loading && progress < 1.0).then_some(progress)
+        };
+
         // ── The animator: drives the fill and the fade, then retires ────────────────────────────
         // Scheduled by the watcher on a fresh navigation and invalidated by itself once the fade
         // finishes, so it exists only while there is something to draw.
@@ -103,7 +112,6 @@ pub fn install(webview: &tauri::Webview, accent: (f64, f64, f64, f64)) {
                 animating_a.set(false);
                 return;
             };
-            let progress: f64 = msg_send![&*host, estimatedProgress];
             let bounds: NSRect = host.bounds();
             let flipped: bool = host.isFlipped();
             // Top edge: y=0 when flipped (top-left origin), else height-HEIGHT.
@@ -113,7 +121,7 @@ pub fn install(webview: &tauri::Webview, accent: (f64, f64, f64, f64)) {
                 bounds.size.height - HEIGHT
             };
 
-            if progress < 1.0 {
+            if let Some(progress) = in_flight(&host) {
                 // Loading: full-height strip, width proportional to progress, fully opaque.
                 bar_a.setHidden(false);
                 bar_a.setAlphaValue(1.0);
@@ -122,7 +130,7 @@ pub fn install(webview: &tauri::Webview, accent: (f64, f64, f64, f64)) {
                     NSSize::new(bounds.size.width * progress, HEIGHT),
                 ));
             } else {
-                // Complete: fill full width, then fade out via alpha decay (alpha doubles as the
+                // Ended: fill full width, then fade out via alpha decay (alpha doubles as the
                 // fade state — no stored flag). Once faded, stand down; the watcher re-arms us on
                 // the next navigation.
                 bar_a.setFrame(NSRect::new(
@@ -155,8 +163,7 @@ pub fn install(webview: &tauri::Webview, accent: (f64, f64, f64, f64)) {
             if animating_w.get() {
                 return; // an animator already owns the bar
             }
-            let progress: f64 = msg_send![&*host, estimatedProgress];
-            if progress < 1.0 {
+            if in_flight(&host).is_some() {
                 // A navigation started — hand the bar to a fast animator until its fade completes.
                 // The block is reused across loads; NSTimer retains it for the timer's lifetime.
                 animating_w.set(true);
