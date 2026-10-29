@@ -52,7 +52,8 @@ It has two parts, split by Cargo feature:
     the page-load bar on each content webview. Used by curator and lector.
   - `web` is the content-webview layer: link routing and escape sentinels (`web::escape`), the
     WebKit login-store id for a session seed (`web::session`), and self-signed TLS for allowlisted
-    hosts (`web::insecure`, macOS).
+    hosts (`web::insecure`, macOS), and the content-webview builder (`web::content`), which takes
+    a spec plus app hooks (`intercept`, `on_app_sentinel`, `on_title`, `on_download`).
 
 ## Status
 

@@ -61,7 +61,10 @@ Two rules span every module below:
   `session` (`data_store_id` over an app-supplied seed; the default session name stays in the
   app's config) and `insecure` (allowlisted self-signed TLS, macOS). **`data_store_id` names the
   WebKit store holding every login** — a change to it logs everyone out; its parity test pins
-  curator's ids.
+  curator's ids. `content` builds every content webview from a spec plus app hooks. **A content
+  webview is only built or destroyed through `web::content`** (`create_content_webview`,
+  `close_content_webview`, `close_window_pages`): a bare `close()` leaks the running page, and a
+  hand-built webview lacks the key-verified sentinel handling.
 - **`menu`** (`runtime`) — the App/Config/Window spine and the tab-nav block, all three apps. The
   *items* are shared; each app's submenu composition and its `selectByOffset` cycle predicate stay
   per-app (required divergence). The close/pop-out/find accelerators are constants here, the family

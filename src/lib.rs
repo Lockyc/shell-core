@@ -100,7 +100,7 @@ pub mod compositing;
 pub mod watch;
 
 /// App-agnostic content-webview layer: link routing, login-store identity, allowlisted
-/// self-signed TLS.
+/// self-signed TLS, the content-webview builder.
 #[cfg(feature = "runtime")]
 pub mod web;
 
