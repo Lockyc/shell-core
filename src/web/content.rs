@@ -21,7 +21,10 @@ pub enum LinkOrigin {
     NewWindow,
     /// A plain click on a cross-host link, decoded from the escape sentinel (routed).
     Click,
-    /// The page's own same-tab navigation.
+    /// Any navigation-policy callback that is not a decoded sentinel click. wry 0.55.1 fires it for
+    /// every navigation action with no main-frame filter — subframe/iframe loads, the tab's own
+    /// initial load, [`navigate_to`] / `apply_route` navigations, and redirects — and carries no
+    /// frame info. A declined `Click`/`NewWindow` that routes in-app arrives again as `Navigation`.
     Navigation,
 }
 
@@ -36,8 +39,8 @@ pub struct ContentSpec<'a> {
     /// Seed for [`session::data_store_id`]: tabs sharing a seed share a login.
     pub session: &'a str,
     /// The window's current content-hole rect, passed in (not read from app state) because
-    /// callers already hold their windows lock when they create a tab — re-locking it here would
-    /// self-deadlock the non-reentrant mutex.
+    /// the caller may hold its own state lock while creating a tab, and re-locking it here would
+    /// self-deadlock a non-reentrant mutex.
     pub hole: HoleRect,
     /// Loading-bar colour as sRGB rgba (0–1); shell-core does not parse colours.
     pub bar_rgba: (f64, f64, f64, f64),
@@ -54,10 +57,17 @@ type DownloadFn = dyn Fn(&AppHandle, &str, &str, bool) + Send + Sync;
 #[derive(Default, Clone)]
 pub struct ContentHooks {
     /// `(app, label, url, origin)`; return true to consume the link/navigation (nothing else
-    /// happens). Consulted before any shell-core routing, in this order: first in `on_new_window`
+    /// happens). `url` is the destination with a link redirector (Google's `/url?q=`) already
+    /// unwrapped. Consulted before any shell-core routing, in this order: first in `on_new_window`
     /// ([`LinkOrigin::NewWindow`]); for a routed escape-sentinel click, before
-    /// [`escape::route_link`] ([`LinkOrigin::Click`]); and at the top of `on_navigation` for
-    /// non-sentinel URLs, before the redirector check ([`LinkOrigin::Navigation`]).
+    /// [`escape::route_link`] ([`LinkOrigin::Click`]; an unrouted cmd/middle-click goes straight to
+    /// the browser); and at the top of `on_navigation` for non-sentinel URLs, before the redirector
+    /// check ([`LinkOrigin::Navigation`], which sees every navigation — see its doc).
+    ///
+    /// Threading: every hook runs synchronously on the main thread inside WebKit's policy or
+    /// UI-delegate callback. The decision must be pure and fast; side effects (creating or
+    /// focusing tabs, touching app state behind a lock) must be deferred with
+    /// `app.run_on_main_thread`, as `apply_route` does, never run re-entrantly from the callback.
     pub intercept: Option<Arc<InterceptFn>>,
     /// `(app, label, url)`: a key-verified sentinel that isn't the escape sentinel (the app's own
     /// notify/badge/… hosts). The navigation is swallowed either way.
@@ -214,6 +224,71 @@ fn classify_navigation(url: &Url, nonce: &str, home_url: &str) -> NavAction {
     }
 }
 
+/// What a link or navigation resolves to once [`ContentHooks::intercept`] has had its say; the
+/// closures in [`create_content_webview`] only perform the side effect.
+#[derive(Debug, PartialEq, Eq)]
+enum NavDecision {
+    /// The app's `intercept` took it: nothing else happens.
+    Consumed,
+    /// Refused with no side effect (a forged/undecodable sentinel, or a disallowed scheme).
+    Refuse,
+    /// Let the tab follow it.
+    Allow,
+    /// Hand the URL to the default browser.
+    Browser(Url),
+    /// A key-verified app-defined sentinel: refuse the navigation, tell the app.
+    AppSentinel,
+    /// A routed click: carry out the route.
+    Route(escape::LinkRoute),
+}
+
+/// The URL `intercept` is shown: a link redirector unwrapped to its destination, as
+/// [`escape::route_link`] and [`classify_navigation`] see it.
+fn unwrapped(url: &Url) -> Url {
+    escape::redirector_target(url).unwrap_or_else(|| url.clone())
+}
+
+/// A `target=_blank` / `window.open` request: `intercept` first, then [`escape::route_link`].
+fn new_window_decision(
+    home_url: &str,
+    url: Url,
+    intercept: &dyn Fn(&Url, LinkOrigin) -> bool,
+) -> NavDecision {
+    if intercept(&unwrapped(&url), LinkOrigin::NewWindow) {
+        return NavDecision::Consumed;
+    }
+    NavDecision::Route(escape::route_link(home_url, url))
+}
+
+/// A navigation-policy decision. Sentinel URLs never reach `intercept` as a navigation; a routed
+/// escape-sentinel click reaches it as [`LinkOrigin::Click`], an unrouted one (cmd/middle-click)
+/// goes straight to the browser.
+fn navigation_decision(
+    url: &Url,
+    nonce: &str,
+    home_url: &str,
+    intercept: &dyn Fn(&Url, LinkOrigin) -> bool,
+) -> NavDecision {
+    if !escape::is_sentinel_host(url) && intercept(&unwrapped(url), LinkOrigin::Navigation) {
+        return NavDecision::Consumed;
+    }
+    match classify_navigation(url, nonce, home_url) {
+        NavAction::Swallow => NavDecision::Refuse,
+        NavAction::Escape(click) => {
+            if !click.routed {
+                return NavDecision::Browser(click.target);
+            }
+            if intercept(&unwrapped(&click.target), LinkOrigin::Click) {
+                return NavDecision::Consumed;
+            }
+            NavDecision::Route(escape::route_link(home_url, click.target))
+        }
+        NavAction::AppSentinel => NavDecision::AppSentinel,
+        NavAction::EscapeToBrowser(target) => NavDecision::Browser(target),
+        NavAction::Allow => NavDecision::Allow,
+    }
+}
+
 /// Act on a [`escape::LinkRoute`] for the tab `label`: navigate it, hand off to the browser, or
 /// drop. The in-app navigation is deferred off the calling navigation-policy callback rather than
 /// run re-entrantly from inside it.
@@ -234,9 +309,8 @@ fn apply_route(app: &AppHandle, label: &str, route: escape::LinkRoute) {
 }
 
 /// Create a content webview for `spec` in `window`. Its login store is keyed on `spec.session`
-/// (tabs sharing a seed share a login). Every tab gets the full shim set, so any loaded tab can
-/// fire native banners and report unread — whether it notifies in the background is purely a
-/// function of whether the app keeps it live.
+/// (tabs sharing a seed share a login). Every tab gets the full shared shim set, followed by the
+/// spec's `extra_init`.
 ///
 /// Returns the webview so the app can attach its own watchers.
 pub fn create_content_webview(
@@ -275,64 +349,56 @@ pub fn create_content_webview(
         .user_agent(desktop_ua())
         .initialization_script(&init)
         .on_new_window(move |url, _features| {
-            if let Some(f) = &open_hooks.intercept {
-                if f(&open_app, &open_label, &url, LinkOrigin::NewWindow) {
-                    return NewWindowResponse::Deny;
-                }
-            }
-            // Navigates inline, unlike `apply_route`'s main-thread deferral: matches curator's
-            // new-window behaviour, so do not fold this match into `apply_route`.
+            let intercept = |u: &Url, origin| {
+                open_hooks
+                    .intercept
+                    .as_ref()
+                    .is_some_and(|f| f(&open_app, &open_label, u, origin))
+            };
+            // The in-app route navigates inline: `on_new_window` is the UI delegate's
+            // `createWebViewWithConfiguration` callback, not a navigation-policy decision, so loading
+            // there is not re-entrant into a pending policy decision (the load then passes through
+            // `on_navigation` like any other). `apply_route` defers because its caller *is* a policy
+            // callback, so do not fold this match into it.
             // The app's own popups/auth flows (same site as the tab) navigate the tab itself, so
             // sign-in completes in the tab's own login session; anything else escapes.
-            match escape::route_link(&open_home, url) {
-                escape::LinkRoute::InApp(url) => {
+            match new_window_decision(&open_home, url, &intercept) {
+                NavDecision::Route(escape::LinkRoute::InApp(url)) => {
                     if let Some(wv) = open_app.get_webview(&open_label) {
                         let _ = wv.navigate(url);
                     }
                 }
-                escape::LinkRoute::Browser(url) => escape::escape_to_default_browser(url.as_str()),
-                escape::LinkRoute::Refuse => {}
+                NavDecision::Route(escape::LinkRoute::Browser(url)) => {
+                    escape::escape_to_default_browser(url.as_str());
+                }
+                _ => {}
             }
             NewWindowResponse::Deny
         })
         .on_navigation(move |url| {
-            if !escape::is_sentinel_host(url) {
-                if let Some(f) = &nav_hooks.intercept {
-                    if f(&nav_app, &nav_label, url, LinkOrigin::Navigation) {
-                        return false;
-                    }
-                }
-            }
-            match classify_navigation(url, &nonce, &nav_home) {
-                NavAction::Swallow => false,
-                NavAction::Escape(click) => {
-                    if !click.routed {
-                        escape::escape_to_default_browser(click.target.as_str());
-                        return false;
-                    }
-                    if let Some(f) = &nav_hooks.intercept {
-                        if f(&nav_app, &nav_label, &click.target, LinkOrigin::Click) {
-                            return false;
-                        }
-                    }
-                    apply_route(
-                        &nav_app,
-                        &nav_label,
-                        escape::route_link(&nav_home, click.target),
-                    );
+            let intercept = |u: &Url, origin| {
+                nav_hooks
+                    .intercept
+                    .as_ref()
+                    .is_some_and(|f| f(&nav_app, &nav_label, u, origin))
+            };
+            match navigation_decision(url, &nonce, &nav_home, &intercept) {
+                NavDecision::Allow => true,
+                NavDecision::Consumed | NavDecision::Refuse => false,
+                NavDecision::Route(route) => {
+                    apply_route(&nav_app, &nav_label, route);
                     false
                 }
-                NavAction::AppSentinel => {
+                NavDecision::Browser(target) => {
+                    escape::escape_to_default_browser(target.as_str());
+                    false
+                }
+                NavDecision::AppSentinel => {
                     if let Some(f) = &nav_hooks.on_app_sentinel {
                         f(&nav_app, &nav_label, url);
                     }
                     false
                 }
-                NavAction::EscapeToBrowser(target) => {
-                    escape::escape_to_default_browser(target.as_str());
-                    false
-                }
-                NavAction::Allow => true,
             }
         })
         .on_document_title_changed(move |webview, title| {
@@ -374,7 +440,7 @@ pub fn create_content_webview(
 }
 
 /// Navigate the content webview `label` to `url` (reset / periodic reload to its canonical URL).
-/// No-op if the webview hasn't been created yet (a never-opened lazy tab is skipped).
+/// The label is looked up app-wide, not only in `window`. No-op if the webview hasn't been created yet (a never-opened lazy tab is skipped).
 pub fn navigate_to(window: &Window, label: &str, url: &Url) -> tauri::Result<()> {
     if let Some(wv) = window.get_webview(label) {
         wv.navigate(url.clone())?;
@@ -473,6 +539,19 @@ mod tests {
     }
 
     #[test]
+    fn desktop_ua_presents_as_safari() {
+        let ua = desktop_ua();
+        assert!(ua.starts_with("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "));
+        assert!(ua.contains(&format!(
+            "AppleWebKit/{SAFARI_WEBKIT_TOKEN} (KHTML, like Gecko)"
+        )));
+        assert!(ua.contains(&format!("Safari/{SAFARI_WEBKIT_TOKEN}")));
+        // The whole point: a real Version/ token, which WKWebView's native UA lacks.
+        assert!(ua.contains("Version/"));
+        assert!(!ua.contains("Chrome/"));
+    }
+
+    #[test]
     fn init_script_substitutes_key_in_every_shim() {
         let extra = ["var k = \"__SHELL_KEY__\"; // app shim"];
         let init = compose_init("deadbeef", &extra);
@@ -534,5 +613,105 @@ mod tests {
         // A redirector back at the tab's own site stays in-app.
         let back = u("https://www.google.com/url?q=https%3A%2F%2Fchat.example.com%2Fa");
         assert_eq!(classify_navigation(&back, NONCE, HOME), NavAction::Allow);
+    }
+
+    type Seen = std::rc::Rc<std::cell::RefCell<Vec<(String, LinkOrigin)>>>;
+
+    /// An intercept that records every `(url, origin)` it is shown and answers `answer`.
+    fn recorder(answer: bool) -> (Seen, impl Fn(&Url, LinkOrigin) -> bool) {
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let log = seen.clone();
+        (seen, move |url: &Url, origin| {
+            log.borrow_mut().push((url.to_string(), origin));
+            answer
+        })
+    }
+
+    const ESC_ROUTED: &str =
+        "https://shell.escape.invalid/?u=https%3A%2F%2Fother.org%2Fx&r=1&k=abc123";
+    const ESC_UNROUTED: &str =
+        "https://shell.escape.invalid/?u=https%3A%2F%2Fother.org%2Fx&k=abc123";
+
+    #[test]
+    fn intercept_is_consulted_first_on_every_origin() {
+        let (seen, f) = recorder(false);
+        let _ = new_window_decision(HOME, u("https://chat.example.com/a"), &f);
+        let _ = navigation_decision(&u("https://chat.example.com/b"), NONCE, HOME, &f);
+        let _ = navigation_decision(&u(ESC_ROUTED), NONCE, HOME, &f);
+        let origins: Vec<_> = seen.borrow().iter().map(|(_, o)| *o).collect();
+        assert_eq!(
+            origins,
+            [
+                LinkOrigin::NewWindow,
+                LinkOrigin::Navigation,
+                LinkOrigin::Click
+            ]
+        );
+    }
+
+    #[test]
+    fn intercept_true_stops_everything() {
+        let (_, f) = recorder(true);
+        assert_eq!(
+            new_window_decision(HOME, u("https://other.org/x"), &f),
+            NavDecision::Consumed
+        );
+        assert_eq!(
+            navigation_decision(&u("https://other.org/x"), NONCE, HOME, &f),
+            NavDecision::Consumed
+        );
+        assert_eq!(
+            navigation_decision(&u(ESC_ROUTED), NONCE, HOME, &f),
+            NavDecision::Consumed
+        );
+    }
+
+    #[test]
+    fn declined_intercept_falls_through_to_routing() {
+        let (_, f) = recorder(false);
+        assert_eq!(
+            navigation_decision(&u(ESC_ROUTED), NONCE, HOME, &f),
+            NavDecision::Route(escape::route_link(HOME, u("https://other.org/x")))
+        );
+        assert_eq!(
+            navigation_decision(&u("https://chat.example.com/b"), NONCE, HOME, &f),
+            NavDecision::Allow
+        );
+    }
+
+    #[test]
+    fn intercept_never_sees_sentinel_navigations() {
+        let (seen, f) = recorder(true);
+        for s in [
+            "https://curator.notify.invalid/?t=x&b=y&k=abc123",
+            "https://curator.notify.invalid/?t=x&b=y&k=wrong",
+            "https://shell.escape.invalid/?u=https%3A%2F%2Fevil.com%2F&r=1&k=wrong",
+        ] {
+            let d = navigation_decision(&u(s), NONCE, HOME, &f);
+            assert_ne!(d, NavDecision::Consumed, "{s}");
+        }
+        assert!(seen.borrow().is_empty());
+    }
+
+    #[test]
+    fn unrouted_click_skips_intercept() {
+        let (seen, f) = recorder(true);
+        assert_eq!(
+            navigation_decision(&u(ESC_UNROUTED), NONCE, HOME, &f),
+            NavDecision::Browser(u("https://other.org/x"))
+        );
+        assert!(seen.borrow().is_empty());
+    }
+
+    #[test]
+    fn intercept_sees_the_unwrapped_redirector_target() {
+        let wrapped = "https://www.google.com/url?q=https%3A%2F%2Fother.org%2Fx";
+        let (seen, f) = recorder(false);
+        let _ = new_window_decision(HOME, u(wrapped), &f);
+        let _ = navigation_decision(&u(wrapped), NONCE, HOME, &f);
+        let click = "https://shell.escape.invalid/?u=https%3A%2F%2Fwww.google.com%2Furl%3Fq%3Dhttps%253A%252F%252Fother.org%252Fx&r=1&k=abc123";
+        let _ = navigation_decision(&u(click), NONCE, HOME, &f);
+        let urls: Vec<_> = seen.borrow().iter().map(|(s, _)| s.clone()).collect();
+        assert_eq!(urls, ["https://other.org/x"; 3]);
     }
 }
