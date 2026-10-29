@@ -149,12 +149,13 @@ pub fn config_scoped_filename(stem: &str, config_path: &Path) -> String {
 /// vectors below. Non-cryptographic; collision resistance is irrelevant (the input is a single
 /// trusted path).
 ///
-/// This is **not** a drift-capable shadow of the config crates' own `fnv1a_64`
-/// (`curator-config`/`warden-config`/`lector-config`'s `hash.rs`) — that copy hashes window
-/// *titles* for session/label identity, a separate domain from this module's config-*path*
-/// hashing. Same algorithm by coincidence of both wanting a toolchain-stable hash, not a shared
-/// fact to consolidate.
-fn fnv1a_64(bytes: &[u8]) -> u64 {
+/// The crate's one FNV-1a: it also hashes the session seed behind
+/// [`crate::web::session::data_store_id`]. This is **not** a drift-capable shadow of the config
+/// crates' own `fnv1a_64` (`curator-config`/`warden-config`/`lector-config`'s `hash.rs`) — that
+/// copy hashes window *titles* for label identity, a separate domain from this crate's
+/// config-*path* and session-seed hashing. Same algorithm by coincidence of both wanting a
+/// toolchain-stable hash, not a shared fact to consolidate.
+pub(crate) fn fnv1a_64(bytes: &[u8]) -> u64 {
     const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
     const PRIME: u64 = 0x0000_0100_0000_01b3;
     let mut hash = OFFSET_BASIS;
