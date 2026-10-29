@@ -28,6 +28,7 @@ runtime = [
     "dep:block2",
     "dep:url",
     "dep:psl",
+    "dep:getrandom",
 ]
 
 [dependencies]
@@ -59,6 +60,8 @@ notify = { version = "6", optional = true }
 # registrable domain `same_site`'s sign-in carve-out compares.
 url = { version = "2", optional = true }
 psl = { version = "2.1.245", optional = true }
+# The per-webview anti-forgery key (src/web/content.rs `random_nonce`): straight from the OS CSPRNG.
+getrandom = { version = "0.2", optional = true }
 
 # Native macOS bits behind the `runtime` feature: the mouse side-button NSEvent monitor
 # (src/mouse_nav.rs) and the content-webview loading bar (src/progress_bar.rs, an NSView overlay on
@@ -72,7 +75,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSView",
     "NSColor",
 ], optional = true }
-objc2-foundation = { version = "0.3", features = ["NSGeometry"], optional = true }
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSBundle", "NSString", "NSDictionary", "NSObject"], optional = true }
 block2 = { version = "0.6", optional = true }
 
 [dev-dependencies]
