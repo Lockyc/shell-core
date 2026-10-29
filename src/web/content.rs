@@ -127,7 +127,8 @@ pub(crate) fn major_minor(raw: &str) -> Option<String> {
     (numeric(major) && numeric(minor)).then(|| format!("{major}.{minor}"))
 }
 
-/// Click-interceptor that reroutes cmd/middle-clicks through the escape sentinel.
+/// Click-interceptor: reroutes cmd/middle-clicks (always the browser) and plain clicks on
+/// cross-host links (routed by [`escape::route_link`], the `Click` origin) through the escape sentinel.
 const ESCAPE_CLICK_JS: &str = include_str!("inject/escape-click.js");
 /// Drives WebKit's `visibilitychange`/`focus` so live services keep syncing while hidden.
 const VISIBILITY_SHIM_JS: &str = include_str!("inject/visibility.js");
@@ -146,7 +147,7 @@ const KEY_PLACEHOLDER: &str = "__SHELL_KEY__";
 fn random_nonce() -> String {
     use std::fmt::Write as _;
     let mut bytes = [0u8; 16];
-    getrandom::getrandom(&mut bytes).expect("OS CSPRNG (getrandom) must succeed on macOS");
+    getrandom::getrandom(&mut bytes).expect("OS CSPRNG (getrandom) must succeed");
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
         let _ = write!(s, "{b:02x}");
@@ -279,6 +280,8 @@ pub fn create_content_webview(
                     return NewWindowResponse::Deny;
                 }
             }
+            // Navigates inline, unlike `apply_route`'s main-thread deferral: matches curator's
+            // new-window behaviour, so do not fold this match into `apply_route`.
             // The app's own popups/auth flows (same site as the tab) navigate the tab itself, so
             // sign-in completes in the tab's own login session; anything else escapes.
             match escape::route_link(&open_home, url) {

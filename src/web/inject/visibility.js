@@ -1,4 +1,4 @@
-// Injected into every content webview (main frame, before load). the shell keeps every
+// Injected into every content webview (main frame, before load). The shell keeps every
 // tab live even when it is a covered background webview — but chat apps (Element)
 // throttle their own /sync when they believe document.hidden. Force "always visible/focused"
 // so the page never backs off. Belt-and-suspenders behind the native z-order approach.
