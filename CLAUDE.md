@@ -57,6 +57,11 @@ Two rules span every module below:
   watcher: it parses inside and drives a main-thread reconcile, a different contract.
 - **`mouse_nav::install`** / **`progress_bar::install`** (`runtime`, macOS) — side-button navigation
   and the loading bar for content WKWebViews, curator + lector (warden hosts native terminals).
+- **`web`** (`runtime`) — the content-webview layer: `escape` (link routing, escape sentinel),
+  `session` (`data_store_id` over an app-supplied seed; the default session name stays in the
+  app's config) and `insecure` (allowlisted self-signed TLS, macOS). **`data_store_id` names the
+  WebKit store holding every login** — a change to it logs everyone out; its parity test pins
+  curator's ids.
 - **`menu`** (`runtime`) — the App/Config/Window spine and the tab-nav block, all three apps. The
   *items* are shared; each app's submenu composition and its `selectByOffset` cycle predicate stay
   per-app (required divergence). The close/pop-out/find accelerators are constants here, the family

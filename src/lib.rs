@@ -99,6 +99,11 @@ pub mod compositing;
 #[cfg(feature = "runtime")]
 pub mod watch;
 
+/// App-agnostic content-webview layer: link routing, login-store identity, allowlisted
+/// self-signed TLS.
+#[cfg(feature = "runtime")]
+pub mod web;
+
 #[cfg(feature = "runtime")]
 pub mod mouse_nav;
 
