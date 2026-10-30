@@ -127,24 +127,30 @@ fn find<'a>(decls: &'a [WindowDecl], title: &str) -> Option<&'a WindowDecl> {
     decls.iter().find(|d| d.title.trim() == title.trim())
 }
 
-/// Ops to bring a running set from `old` to `new`: `Close` for a live window no longer declared,
-/// `Open` for a window newly declared (labelled by [`assign`] against `live`), `Update` for a
-/// live kept window whose colour changed. See the module docs for what is deliberately not an op.
+/// Ops to bring a running set from `old` to `new`: `Close` for a live window no longer declared
+/// (once per label), `Open` for a newly declared window not already live (labelled by [`assign`]
+/// against `live`), `Update` for a live kept window whose colour changed. See the module docs for
+/// what is deliberately not an op.
 pub fn reconcile(
     old: &[WindowDecl],
     new: &[WindowDecl],
     live: &BTreeMap<String, String>,
 ) -> Vec<WindowOp> {
     let mut ops = Vec::new();
+    let mut closed = HashSet::new();
     for o in old {
         if find(new, &o.title).is_none() {
             if let Some(label) = live.get(o.title.trim()) {
-                ops.push(WindowOp::Close(label.clone()));
+                if closed.insert(label) {
+                    ops.push(WindowOp::Close(label.clone()));
+                }
             }
         }
     }
     for slot in assign(new, live) {
         match find(old, &slot.decl.title) {
+            // Pinned to a live label: already open, whatever `old` says.
+            None if slot.open => {}
             None => ops.push(WindowOp::Open(Slot { open: true, ..slot })),
             Some(o) if slot.open && o.colour != slot.decl.colour => ops.push(WindowOp::Update {
                 label: slot.label,
@@ -316,6 +322,29 @@ mod tests {
         new.height = 2.0;
         new.open_on_start = false;
         assert!(reconcile(&[decl("work")], &[new], &live(&[("work", "work")])).is_empty());
+    }
+
+    #[test]
+    fn assign_lets_only_the_first_same_titled_decl_claim_a_live_label() {
+        let slots = assign(&[decl("side"), decl("side")], &live(&[("side", "side")]));
+        assert_eq!(labels(&slots), ["side", "side-2"]);
+        assert!(slots[0].open && !slots[1].open);
+    }
+
+    #[test]
+    fn added_title_already_live_is_not_reopened() {
+        let ops = reconcile(&[], &[decl("work")], &live(&[("work", "work")]));
+        assert!(ops.is_empty(), "{ops:?}");
+    }
+
+    #[test]
+    fn duplicate_titled_removed_decls_close_once() {
+        let ops = reconcile(
+            &[decl("side"), decl("side")],
+            &[],
+            &live(&[("side", "side")]),
+        );
+        assert_eq!(ops, [WindowOp::Close("side".into())]);
     }
 
     #[test]
