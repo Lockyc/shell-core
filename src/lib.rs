@@ -90,6 +90,10 @@ pub mod menu;
 #[cfg(feature = "runtime")]
 pub mod home;
 
+/// Pure window plan (labels, reconcile, menu entries) for the windows an app declares.
+#[cfg(feature = "runtime")]
+pub mod windows;
+
 #[cfg(feature = "runtime")]
 pub mod detach;
 
