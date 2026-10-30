@@ -51,11 +51,11 @@ It has two parts, split by Cargo feature:
   - `detach` pops a tab out into its own window: shell-core provides the window and its banner;
     the app moves the tab's content into it.
   - `compositing` positions content webviews in the area the sidebar leaves free (`HoleRect`,
-    `layout_webviews`). Used by curator and lector.
+    `layout_webviews`). Used by curator, lector and flotilla.
   - `watch` is the config-file hot-reload watcher (it ignores the app's own format-on-save
-    writes); the app re-parses the file. Used by curator and lector.
+    writes); the app re-parses the file. Used by curator, lector and flotilla.
   - `mouse_nav` drives WKWebView back/forward from the mouse side buttons, and `progress_bar` draws
-    the page-load bar on each content webview. Used by curator and lector.
+    the page-load bar on each content webview. Used by curator and lector; flotilla uses `mouse_nav`.
   - `web` is the content-webview layer: link routing and escape sentinels (`web::escape`), the
     WebKit login-store id for a session seed (`web::session`), self-signed TLS for allowlisted
     hosts (`web::insecure`, macOS), and the content-webview builder (`web::content`), which takes
