@@ -342,3 +342,50 @@ fn core_patch_pin_writes_every_manifest_of_a_core() {
         );
     }
 }
+
+/// install-app.sh stamps the bundle with the commit it was built from — `lockstep.sh release`
+/// reads `com.lockyc.build-commit` to decide whether a release may replace this build.
+fn install_and_read_stamp(f: &Fixture) -> String {
+    let src = f.root.join("src/demo.app");
+    std::fs::create_dir_all(src.join("Contents")).unwrap();
+    // install-app.sh quits the running app first; never let a test reach the real osascript.
+    write_exec(&f.stub_bin.join("osascript"), "#!/bin/sh\nexit 0\n");
+    write_exec(&f.stub_bin.join("pkill"), "#!/bin/sh\nexit 1\n");
+    let dest = f.root.join("Applications/demo.app");
+    let out = f
+        .script("install-app.sh", &[src.to_str().unwrap()])
+        .env("APP_DEST", &dest)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "install-app.sh: {}",
+        text(&out.stderr)
+    );
+    let x = Command::new("xattr")
+        .args(["-p", "com.lockyc.build-commit"])
+        .arg(&dest)
+        .output()
+        .unwrap();
+    assert!(
+        x.status.success(),
+        "no build-commit stamp on {}",
+        dest.display()
+    );
+    text(&x.stdout).trim().to_string()
+}
+
+#[test]
+fn install_stamps_the_build_commit() {
+    let f = Fixture::new("install-stamp");
+    let head = f.git(&["rev-parse", "HEAD"]).trim().to_string();
+    assert_eq!(install_and_read_stamp(&f), head);
+}
+
+#[test]
+fn install_marks_a_dirty_build() {
+    let f = Fixture::new("install-dirty");
+    let head = f.git(&["rev-parse", "HEAD"]).trim().to_string();
+    f.write("scratch.txt", "uncommitted\n");
+    assert_eq!(install_and_read_stamp(&f), format!("{head}-dirty"));
+}
