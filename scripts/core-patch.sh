@@ -13,7 +13,8 @@
 # Per-app data is the tracked scripts/tooling.env's CORES: space-separated `<core>:<crate>:<manifest>`
 # entries. <core> is the recipe prefix and the `#PATCH:<core>#` marker in the workspace Cargo.toml;
 # <crate> is the crate, its github.com/Lockyc repo and the ../<crate> sibling checkout; <manifest>
-# is the Cargo.toml (from the repo root) whose git dep line carries the pinned rev.
+# is the Cargo.toml (from the repo root) whose git dep line carries the pinned rev, or a comma-separated
+# list of them when several of the workspace's crates pin the core (re-pinned together).
 #
 # The workspace Cargo.toml carries each core's [patch] commented out as `#PATCH:<core>#` lines. An
 # active patch builds green locally and is unresolvable for every other clone, so `guard` (the
@@ -68,17 +69,22 @@ cmd_pin() {
   git -C "$cc" fetch -q origin
   rev=$(git -C "$cc" rev-parse HEAD)
   if ! git -C "$cc" branch -r --contains "$rev" | grep -q origin/; then fail "$CRATE HEAD ($rev) isn't pushed — push it first"; fi
-  # Every dep line for the crate in the manifest (shell-core has two: the build-dep and the runtime dep).
-  tmp=$(mktemp)
-  sed -E 's|('"$CRATE"' = \{ git = "'"$GIT_BASE/$CRATE"'", rev = ")[0-9a-f]+|\1'"$rev"'|g' "$MANIFEST" >"$tmp" && mv "$tmp" "$MANIFEST"
-  if ! grep -qF "rev = \"$rev\"" "$MANIFEST"; then fail "$core-pin: failed to write rev into $MANIFEST — dep line shape changed, re-pin by hand"; fi
+  # Every dep line for the crate in each of its manifests (shell-core has two in an app manifest: the
+  # build-dep and the runtime dep).
+  local manifest manifests
+  IFS=, read -ra manifests <<<"$MANIFEST"
+  for manifest in "${manifests[@]}"; do
+    tmp=$(mktemp)
+    sed -E 's|('"$CRATE"' = \{ git = "'"$GIT_BASE/$CRATE"'", rev = ")[0-9a-f]+|\1'"$rev"'|g' "$manifest" >"$tmp" && mv "$tmp" "$manifest"
+    if ! grep -qF "rev = \"$rev\"" "$manifest"; then fail "$core-pin: failed to write rev into $manifest — dep line shape changed, re-pin by hand"; fi
+  done
   tmp=$(mktemp)
   sed -E 's|^\[patch\."'"$GIT_BASE/$CRATE"'"\]$|#PATCH:'"$core"'#&|; s|^'"$CRATE"' = \{ path = "\.\./'"$CRATE"'" \}$|#PATCH:'"$core"'#&|' Cargo.toml >"$tmp" && mv "$tmp" Cargo.toml
   if grep -qE '^\[patch\."'"$GIT_BASE/$CRATE"'"\]$' Cargo.toml; then fail "$core-pin: $CRATE [patch] still active after re-comment — check Cargo.toml"; fi
   # Reconcile Cargo.lock on a patch→git flip: a bare -p cannot match the patched (path) source, a
   # minimal resolve does.
   cargo update -p "$CRATE" || cargo metadata --format-version 1 >/dev/null
-  echo "✓ pinned $CRATE → $rev (patch deactivated). Commit $MANIFEST + Cargo.lock."
+  echo "✓ pinned $CRATE → $rev (patch deactivated). Commit ${MANIFEST//,/ + } + Cargo.lock."
 }
 
 cmd_guard() {

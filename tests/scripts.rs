@@ -289,3 +289,56 @@ fn core_patch_dev_activates_the_patch_and_guard_blocks_it() {
     assert!(!guard.status.success());
     assert!(text(&guard.stderr).contains("'just widget-pin'"));
 }
+
+/// A core pinned in several manifests (an app crate and a library crate of the same workspace)
+/// is re-pinned in all of them at once, so the workspace never resolves two copies of it.
+#[test]
+fn core_patch_pin_writes_every_manifest_of_a_core() {
+    let f = Fixture::new("core-pin");
+    // cargo's lock reconcile is not under test.
+    write_exec(&f.stub_bin.join("cargo"), "#!/bin/sh\nexit 0\n");
+    f.write(
+        "scripts/tooling.env",
+        "APP_NAME=demo\nTAURI_CRATE_DIR=src-tauri\nUPDATER_REPO=owner/demo\n\
+         CORES=\"widget:widget-core:src-tauri/Cargo.toml,crates/lib/Cargo.toml\"\n",
+    );
+    let dep =
+        "widget-core = { git = \"https://github.com/Lockyc/widget-core\", rev = \"0000000\" }\n";
+    f.write(
+        "src-tauri/Cargo.toml",
+        &format!("[package]\n[dependencies]\n{dep}"),
+    );
+    std::fs::create_dir_all(f.app.join("crates/lib")).unwrap();
+    f.write(
+        "crates/lib/Cargo.toml",
+        &format!("[package]\n[dependencies]\n{dep}"),
+    );
+
+    // The sibling checkout, its HEAD pushed.
+    let core = f.root.join("widget-core");
+    std::fs::create_dir_all(&core).unwrap();
+    let git = |args: &[&str]| {
+        let out = f.cmd("git").current_dir(&core).args(args).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", text(&out.stderr));
+        text(&out.stdout)
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "core"]);
+    git(&["init", "-q", "--bare", "../widget-core.git"]);
+    git(&["remote", "add", "origin", "../widget-core.git"]);
+    git(&["push", "-q", "origin", "main"]);
+    let rev = git(&["rev-parse", "HEAD"]).trim().to_string();
+
+    let out = f
+        .script("core-patch.sh", &["pin", "widget"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "pin: {}", text(&out.stderr));
+    for m in ["src-tauri/Cargo.toml", "crates/lib/Cargo.toml"] {
+        let body = std::fs::read_to_string(f.app.join(m)).unwrap();
+        assert!(
+            body.contains(&format!("rev = \"{rev}\"")),
+            "{m} not re-pinned:\n{body}"
+        );
+    }
+}

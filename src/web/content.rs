@@ -490,6 +490,19 @@ pub fn close_window_pages(window: &Window) {
     }
 }
 
+/// Ends `window`'s content pages ([`close_window_pages`]) whenever it is asked to close, by the user
+/// or by `close()`. It must be `CloseRequested`: by `Destroyed` (where
+/// [`crate::detach::wire_return`]'s `on_close` runs) the window has already dropped its webviews,
+/// still running.
+pub fn wire_close_pages(window: &Window) {
+    let closing = window.clone();
+    window.on_window_event(move |e| {
+        if let tauri::WindowEvent::CloseRequested { .. } = e {
+            close_window_pages(&closing);
+        }
+    });
+}
+
 /// End the page a content webview is running, synchronously, via `-[WKWebView _close]`.
 ///
 /// WebKit SPI, guarded on `respondsToSelector:`: a WebKit that renames it degrades to the leak
