@@ -64,7 +64,10 @@ Two rules span every module below:
   curator's ids. `content` builds every content webview from a spec plus app hooks. **A content
   webview is only built or destroyed through `web::content`** (`create_content_webview`,
   `close_content_webview`, `close_window_pages`): a bare `close()` leaks the running page, and a
-  hand-built webview lacks the key-verified sentinel handling.
+  hand-built webview lacks the key-verified sentinel handling, the inspector watcher
+  (`web::inspector`: an attached Web Inspector is forced into its own window and the hole
+  re-applied, so it never covers the sidebar) and `web::ipc_global` (wry's `window.ipc` made
+  replaceable before the first load, which is why every content webview is born on `about:blank`).
 - **`menu`** (`runtime`) — the App/Config/Window spine and the tab-nav block, all three apps. The
   *items* are shared; each app's submenu composition and its `selectByOffset` cycle predicate stay
   per-app (required divergence). The close/pop-out/find accelerators are constants here, the family
