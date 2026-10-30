@@ -144,6 +144,8 @@ const ESCAPE_CLICK_JS: &str = include_str!("inject/escape-click.js");
 const VISIBILITY_SHIM_JS: &str = include_str!("inject/visibility.js");
 /// Shows a hovered link's destination in a status overlay at the bottom of the tab.
 const LINK_STATUS_JS: &str = include_str!("inject/link-status.js");
+/// Keeps a scroller pinned at its bottom through a re-render WebKit would clamp it up by.
+const SCROLL_CLAMP_JS: &str = include_str!("inject/scroll-clamp.js");
 
 /// The placeholder every shim that emits a sentinel navigation carries for the per-webview key.
 const KEY_PLACEHOLDER: &str = "__SHELL_KEY__";
@@ -168,7 +170,7 @@ fn random_nonce() -> String {
 /// The full initialization script: the shared shims, then the app's `extra`, each with the key
 /// placeholder replaced by `nonce`.
 fn compose_init(nonce: &str, extra: &[&str]) -> String {
-    [ESCAPE_CLICK_JS, VISIBILITY_SHIM_JS]
+    [ESCAPE_CLICK_JS, VISIBILITY_SHIM_JS, SCROLL_CLAMP_JS]
         .into_iter()
         .chain(extra.iter().copied())
         .chain([LINK_STATUS_JS])

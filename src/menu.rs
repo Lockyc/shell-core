@@ -1,9 +1,7 @@
-//! The app-agnostic menu spine: the App, Config, and Window submenus that are identical for any
-//! app in the family regardless of what it hosts. Each app builds its own items (curator's Reload
-//! Tab, warden's terminal semantics) and interleaves them with these.
-//!
-//! This is a shared spine plus per-app items — **not** one menu with parameters. The distinction
-//! matters: the app-specific items genuinely cannot be parameterised, which is why they stay put.
+//! The family's shared menus: the App, Config, Window and Edit submenus, the whole Tab submenu,
+//! and [`route`], which decides which window a menu command acts on. Each app builds only its own
+//! items (curator's Reload Tab, warden's terminal semantics), which genuinely cannot be
+//! parameterised: it hands them to [`build_tab_menu`] as groups, or places them in its own menus.
 
 use std::path::Path;
 
@@ -25,6 +23,8 @@ pub mod ids {
     pub const TAB_PREV_DIGIT: &str = "shell:tab_prev_digit";
     /// Jump-to-position items: `shell:tab_jump:<1-based position>`.
     pub const TAB_JUMP_PREFIX: &str = "shell:tab_jump:";
+    /// The Cycle Tabs with ⌘1/⌘2 check item. The app writes the flipped `tab_digit_keys`.
+    pub const TAB_DIGIT_CYCLE: &str = "shell:tab_digit_cycle";
 }
 
 /// The family's close accelerators.
@@ -72,7 +72,6 @@ pub struct WindowEntry {
 /// What an app tells the spine about itself.
 pub struct SpineConfig<'a> {
     pub app_name: &'a str,
-    pub config_path: &'a Path,
     pub windows: &'a [WindowEntry],
 }
 
@@ -153,12 +152,12 @@ fn nav_spec(cycle_digits: bool) -> Vec<ItemSpec> {
     if cycle_digits {
         v.push(ItemSpec {
             id: ids::TAB_NEXT_DIGIT.to_string(),
-            label: "Next Tab (⌘1)".to_string(),
+            label: "Next Tab".to_string(),
             accel: "Cmd+Digit1".to_string(),
         });
         v.push(ItemSpec {
             id: ids::TAB_PREV_DIGIT.to_string(),
-            label: "Previous Tab (⌘2)".to_string(),
+            label: "Previous Tab".to_string(),
             accel: "Cmd+Digit2".to_string(),
         });
     }
@@ -178,45 +177,92 @@ fn jump_spec(cycle_digits: bool) -> Vec<ItemSpec> {
         .collect()
 }
 
-/// The tab-navigation items, in the two blocks an app places in its own tab submenu.
-///
-/// Two blocks rather than a built submenu because each app's tab submenu genuinely differs —
-/// curator's also carries Reload Tab / Reset All Tabs / Open Developer Tools, lector's carries
-/// neither, warden splices Reopen Last Closed into the Window submenu. Ordering *within* a block
-/// is fixed here; composition stays the app's.
-pub struct TabNav<R: tauri::Runtime> {
-    /// Previous Tab, Next Tab — plus the ⌘1/⌘2 aliases when `cycle_digits`.
-    pub nav: Vec<MenuItem<R>>,
-    /// Jump-to-position: ⌘1–⌘9, or ⌘3–⌘9 when the aliases took 1 and 2.
-    pub jumps: Vec<MenuItem<R>>,
+/// The Cycle Tabs toggle's title.
+const TOGGLE_LABEL: &str = "Cycle Tabs with ⌘1/⌘2";
+
+/// Whether the Cycle Tabs toggle is ticked: exactly when ⌘1/⌘2 cycle.
+fn toggle_checked(cycle_digits: bool) -> bool {
+    cycle_digits
 }
 
-/// Build the tab-navigation items for the given digit mode.
+/// One position in the Tab submenu. Kept as data so the menu's order — the one thing every app
+/// shares — is unit-testable without a Tauri app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    /// `nav_spec`'s item at this index.
+    Nav(usize),
+    Toggle,
+    Sep,
+    CloseTab,
+    PopOutTab,
+    FindInSidebar,
+    /// The app's group at this index.
+    Group(usize),
+    /// Every `jump_spec` item.
+    Jumps,
+}
+
+/// The Tab submenu's order: navigation and the toggle, the spine's tab items, each app group,
+/// then the jumps.
+fn tab_menu_spec(cycle_digits: bool, n_groups: usize) -> Vec<Slot> {
+    let mut v: Vec<Slot> = (0..nav_spec(cycle_digits).len()).map(Slot::Nav).collect();
+    v.extend([
+        Slot::Toggle,
+        Slot::Sep,
+        Slot::CloseTab,
+        Slot::PopOutTab,
+        Slot::FindInSidebar,
+    ]);
+    for g in 0..n_groups {
+        v.extend([Slot::Sep, Slot::Group(g)]);
+    }
+    v.extend([Slot::Sep, Slot::Jumps]);
+    v
+}
+
+/// Build the whole Tab submenu: shell-core owns its shape, the app supplies only its own item
+/// groups (warden's Split and session items, curator's Reload Tab…), each set off by a separator.
 ///
 /// `cycle_digits` is a plain bool, NOT config-core's `TabDigitKeys`: shell-core must never depend
 /// on config-core (the cores stay mutually independent, so each is independently patchable), so
 /// the consuming app bridges with `cfg.tab_digit_keys.is_cycle()`.
-pub fn build_tab_nav<R: tauri::Runtime, M: tauri::Manager<R>>(
+pub fn build_tab_menu<R: tauri::Runtime, M: tauri::Manager<R>>(
     manager: &M,
+    spine: &Spine<R>,
     cycle_digits: bool,
-) -> tauri::Result<TabNav<R>> {
-    fn build<R: tauri::Runtime, M: tauri::Manager<R>>(
-        manager: &M,
-        specs: Vec<ItemSpec>,
-    ) -> tauri::Result<Vec<MenuItem<R>>> {
-        specs
-            .into_iter()
-            .map(|s| {
-                MenuItemBuilder::with_id(s.id, s.label)
-                    .accelerator(s.accel)
-                    .build(manager)
-            })
-            .collect()
+    app_groups: &[&[&dyn IsMenuItem<R>]],
+) -> tauri::Result<Submenu<R>> {
+    let item = |s: &ItemSpec| {
+        MenuItemBuilder::with_id(s.id.clone(), s.label.clone())
+            .accelerator(s.accel.clone())
+            .build(manager)
+    };
+    let nav = nav_spec(cycle_digits)
+        .iter()
+        .map(item)
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let jumps = jump_spec(cycle_digits)
+        .iter()
+        .map(item)
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let toggle = CheckMenuItemBuilder::with_id(ids::TAB_DIGIT_CYCLE, TOGGLE_LABEL)
+        .checked(toggle_checked(cycle_digits))
+        .build(manager)?;
+
+    let mut menu = SubmenuBuilder::new(manager, "Tab");
+    for slot in tab_menu_spec(cycle_digits, app_groups.len()) {
+        menu = match slot {
+            Slot::Nav(i) => menu.item(&nav[i]),
+            Slot::Toggle => menu.item(&toggle),
+            Slot::Sep => menu.separator(),
+            Slot::CloseTab => menu.item(&spine.close_tab),
+            Slot::PopOutTab => menu.item(&spine.pop_out_tab),
+            Slot::FindInSidebar => menu.item(&spine.find_in_sidebar),
+            Slot::Group(g) => menu.items(app_groups[g]),
+            Slot::Jumps => jumps.iter().fold(menu, |m, j| m.item(j)),
+        };
     }
-    Ok(TabNav {
-        nav: build(manager, nav_spec(cycle_digits))?,
-        jumps: build(manager, jump_spec(cycle_digits))?,
-    })
+    menu.build()
 }
 
 /// What a tab-nav menu id means.
@@ -228,11 +274,9 @@ pub enum TabNavAction {
     Jump(usize),
 }
 
-/// Route a menu id to its tab-nav action, or `None` for any other id.
-///
-/// Both ⌘1/⌘2 alias ids collapse onto `Next`/`Prev`, so an app's menu handler never learns the
-/// digit mode exists — the mode is entirely `build_tab_nav`'s business.
-pub fn tab_nav_action(id: &str) -> Option<TabNavAction> {
+/// Route a menu id to its tab-nav action, or `None` for any other id. Both ⌘1/⌘2 alias ids
+/// collapse onto `Next`/`Prev`, so an app's handler never learns the digit mode exists.
+fn tab_nav_action(id: &str) -> Option<TabNavAction> {
     match id {
         ids::TAB_NEXT | ids::TAB_NEXT_DIGIT => Some(TabNavAction::Next),
         ids::TAB_PREV | ids::TAB_PREV_DIGIT => Some(TabNavAction::Prev),
@@ -243,21 +287,100 @@ pub fn tab_nav_action(id: &str) -> Option<TabNavAction> {
     }
 }
 
+/// A spine command, as [`route`] resolved it for the window it acts on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpineAction {
+    Nav(TabNavAction),
+    /// ⌘W in a main window: unload the active tab.
+    CloseTab,
+    /// ⌘W in a popped-out window: return its tab to the window it came from.
+    DockPoppedOut,
+    PopOutTab,
+    FindInSidebar,
+    CheckUpdates,
+    CloseWindow,
+}
+
+/// Where a spine command acts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Routed {
+    pub action: SpineAction,
+    /// The window label to act on.
+    pub target: String,
+    /// Set when the command was fired from a popped-out window and redirected to `target`, its
+    /// origin: the app raises `target`, and Next/Previous step from this popped-out tab.
+    pub from_detached: Option<String>,
+}
+
+/// Which window a spine command acts on, given the focused window's label.
+///
+/// One rule for every app. A popped-out window has no sidebar, so ⌘W docks its tab, Pop Out Tab
+/// does nothing, and the sidebar commands (tab navigation, Find in Sidebar, Check for Updates) go
+/// to the window it came from. The home surface has no tabs: only Close Window acts there. The
+/// app answers `origin_of(detached_label)` from its own bookkeeping (shell-core stores no origin
+/// state); `None` drops the command. Edit/Reveal Config and the toggle are not routed: they act on
+/// the config file, not a window.
+pub fn route(
+    id: &str,
+    focused: &str,
+    origin_of: impl Fn(&str) -> Option<String>,
+) -> Option<Routed> {
+    let action = match id {
+        ids::CLOSE_TAB => SpineAction::CloseTab,
+        ids::POP_OUT_TAB => SpineAction::PopOutTab,
+        ids::FIND_IN_SIDEBAR => SpineAction::FindInSidebar,
+        ids::CHECK_UPDATES => SpineAction::CheckUpdates,
+        ids::CLOSE_WINDOW => SpineAction::CloseWindow,
+        _ => SpineAction::Nav(tab_nav_action(id)?),
+    };
+    let here = |action| {
+        Some(Routed {
+            action,
+            target: focused.to_string(),
+            from_detached: None,
+        })
+    };
+    if action == SpineAction::CloseWindow {
+        return here(action);
+    }
+    if focused == crate::home::HOME_LABEL {
+        return None;
+    }
+    if crate::detach::is_detached_label(focused) {
+        return match action {
+            SpineAction::CloseTab => here(SpineAction::DockPoppedOut),
+            SpineAction::PopOutTab => None,
+            action => Some(Routed {
+                action,
+                target: origin_of(focused)?,
+                from_detached: Some(focused.to_string()),
+            }),
+        };
+    }
+    here(action)
+}
+
 use tauri::menu::{
-    AboutMetadataBuilder, CheckMenuItemBuilder, MenuItem, MenuItemBuilder, Submenu, SubmenuBuilder,
+    AboutMetadataBuilder, CheckMenuItemBuilder, IsMenuItem, MenuItem, MenuItemBuilder, Submenu,
+    SubmenuBuilder,
 };
 
 /// What `build_spine` hands back: the shared submenus, plus the Close Tab, Pop Out Tab and Find in
-/// Sidebar items for the app to place in its own tab submenu (every app's differs).
+/// Sidebar items [`build_tab_menu`] places (an app may also reuse one, as flotilla's Group menu
+/// retitles Close Tab).
 pub struct Spine<R: tauri::Runtime> {
+    /// App, Config, Window — in that order.
     pub submenus: Vec<Submenu<R>>,
+    /// Undo/Redo, Cut/Copy/Paste/Select All. Without an Edit menu the clipboard chords do nothing
+    /// in a webview, so an app places it unless something else owns those chords.
+    pub edit: Submenu<R>,
     pub close_tab: MenuItem<R>,
     pub pop_out_tab: MenuItem<R>,
     pub find_in_sidebar: MenuItem<R>,
 }
 
-/// Build the App, Config, and Window submenus plus the tab-submenu items `Spine` names. Returns
-/// them for the app to place among its own — this does NOT set the menu, mirroring how
+/// Build the App, Config, Window and Edit submenus plus the tab items `Spine` names. Returns them
+/// for the app to place among its own — this does NOT set the menu, mirroring how
 /// `register_plugins` returns the `Builder` for continued chaining.
 ///
 /// The About box carries the app's version plus the `build_stamp()` sha/date, so a glance confirms
@@ -351,8 +474,19 @@ pub fn build_spine<R: tauri::Runtime, M: tauri::Manager<R>>(
     }
     let window_menu = window_menu.build()?;
 
+    let edit = SubmenuBuilder::new(manager, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
     Ok(Spine {
         submenus: vec![app_menu, config_menu, window_menu],
+        edit,
         close_tab,
         pop_out_tab,
         find_in_sidebar,
@@ -497,6 +631,147 @@ mod tests {
     fn the_tab_nav_accelerators_are_the_family_standard() {
         assert_eq!(ACCEL_TAB_PREV, "Shift+Cmd+BracketLeft");
         assert_eq!(ACCEL_TAB_NEXT, "Shift+Cmd+BracketRight");
+    }
+
+    #[test]
+    fn tab_menu_order() {
+        use Slot::*;
+        assert_eq!(
+            tab_menu_spec(false, 0),
+            [
+                Nav(0),
+                Nav(1),
+                Toggle,
+                Sep,
+                CloseTab,
+                PopOutTab,
+                FindInSidebar,
+                Sep,
+                Jumps
+            ]
+        );
+        assert_eq!(
+            tab_menu_spec(true, 2),
+            [
+                Nav(0),
+                Nav(1),
+                Nav(2),
+                Nav(3),
+                Toggle,
+                Sep,
+                CloseTab,
+                PopOutTab,
+                FindInSidebar,
+                Sep,
+                Group(0),
+                Sep,
+                Group(1),
+                Sep,
+                Jumps
+            ]
+        );
+    }
+
+    #[test]
+    fn cycle_aliases_are_plainly_labelled() {
+        let nav = nav_spec(true);
+        assert_eq!(nav[2].label, "Next Tab");
+        assert_eq!(nav[3].label, "Previous Tab");
+    }
+
+    #[test]
+    fn the_toggle_is_ticked_in_cycle_mode() {
+        assert!(!toggle_checked(false));
+        assert!(toggle_checked(true));
+        assert_eq!(TOGGLE_LABEL, "Cycle Tabs with ⌘1/⌘2");
+        assert_eq!(ids::TAB_DIGIT_CYCLE, "shell:tab_digit_cycle");
+    }
+
+    const SPINE_IDS: [&str; 7] = [
+        ids::TAB_NEXT,
+        "shell:tab_jump:4",
+        ids::CLOSE_TAB,
+        ids::POP_OUT_TAB,
+        ids::FIND_IN_SIDEBAR,
+        ids::CHECK_UPDATES,
+        ids::CLOSE_WINDOW,
+    ];
+
+    fn origin(label: &str) -> Option<String> {
+        (label == "shell-detach:x").then(|| "w1".to_string())
+    }
+
+    #[test]
+    fn route_in_a_main_window_targets_it() {
+        for id in SPINE_IDS {
+            let r = route(id, "w1", origin).unwrap_or_else(|| panic!("{id}"));
+            assert_eq!((r.target.as_str(), r.from_detached), ("w1", None), "{id}");
+        }
+        assert_eq!(
+            route(ids::CLOSE_TAB, "w1", origin).unwrap().action,
+            SpineAction::CloseTab
+        );
+        assert_eq!(
+            route(ids::TAB_PREV, "w1", origin).unwrap().action,
+            SpineAction::Nav(TabNavAction::Prev)
+        );
+    }
+
+    #[test]
+    fn route_in_a_popped_out_window() {
+        let pop = "shell-detach:x";
+        let r = route(ids::CLOSE_TAB, pop, origin).unwrap();
+        assert_eq!(
+            (r.action, r.target.as_str()),
+            (SpineAction::DockPoppedOut, pop)
+        );
+        assert!(route(ids::POP_OUT_TAB, pop, origin).is_none());
+        for id in [
+            ids::TAB_NEXT,
+            "shell:tab_jump:4",
+            ids::FIND_IN_SIDEBAR,
+            ids::CHECK_UPDATES,
+        ] {
+            let r = route(id, pop, origin).unwrap();
+            assert_eq!(r.target, "w1", "{id}");
+            assert_eq!(r.from_detached.as_deref(), Some(pop), "{id}");
+        }
+        let r = route(ids::CLOSE_WINDOW, pop, origin).unwrap();
+        assert_eq!(
+            (r.action, r.target.as_str()),
+            (SpineAction::CloseWindow, pop)
+        );
+    }
+
+    #[test]
+    fn route_with_an_unknown_origin() {
+        let pop = "shell-detach:gone";
+        assert!(route(ids::TAB_NEXT, pop, origin).is_none());
+        assert!(route(ids::CHECK_UPDATES, pop, origin).is_none());
+        assert_eq!(
+            route(ids::CLOSE_TAB, pop, origin).unwrap().action,
+            SpineAction::DockPoppedOut
+        );
+    }
+
+    #[test]
+    fn route_on_the_home_surface() {
+        for id in SPINE_IDS {
+            let r = route(id, crate::home::HOME_LABEL, origin);
+            assert_eq!(r.is_some(), id == ids::CLOSE_WINDOW, "{id}");
+        }
+    }
+
+    #[test]
+    fn route_ignores_other_ids() {
+        for id in [
+            ids::EDIT_CONFIG,
+            ids::REVEAL_CONFIG,
+            ids::TAB_DIGIT_CYCLE,
+            "app:x",
+        ] {
+            assert!(route(id, "w1", origin).is_none(), "{id}");
+        }
     }
 
     #[test]

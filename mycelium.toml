@@ -15,7 +15,7 @@ summary = "The Tauri runtime sliver identical for any such app: register_plugins
 
 [[provides]]
 name    = "menu-spine"
-summary = "menu::build_spine() — the App/Config/Window submenus (About, Check for Updates…, Edit/Reveal Config, a checked per-window selector) identical across the family — and menu::build_tab_nav() (⌘⇧[/⌘⇧] tab cycling, ⌘1–9 jumps and the ⌘1/⌘2 cycle aliases), plus the family-standard Close Tab, Close Window, Pop Out Tab and Find in Sidebar accelerators as constants. Returns submenus for the app to interleave with its own per-app items (curator's Edit/Tabs, warden's Reopen Last Closed)."
+summary = "menu::build_spine() — the App/Config/Window/Edit submenus (About, Check for Updates…, Edit/Reveal Config, a checked per-window selector, the clipboard items) identical across the family — menu::build_tab_menu() (the whole Tab submenu: ⌘⇧[/⌘⇧] cycling, the Cycle Tabs with ⌘1/⌘2 toggle, Close/Pop Out/Find, the app's own groups, ⌘1–9 jumps) and menu::route() (which window a command acts on, popped-out windows included). The family-standard accelerators are constants here."
 
 [[provides]]
 name    = "home-surface"

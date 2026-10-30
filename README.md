@@ -33,11 +33,12 @@ It has two parts, split by Cargo feature:
     Each config file gets its own saved geometry (`geometry_filename`). Restored geometry is
     correct across monitors with different scale factors.
   - `menu::build_spine()` builds the **menu spine** — the App submenu (About, Check for Updates…),
-    the Config submenu (Edit Config / Reveal in Finder), and the Window submenu (a checked
-    per-window selector), plus the Close Tab / Pop Out Tab / Find in Sidebar items, with constants
-    for the close shortcuts all three apps share (⌘W closes a tab, ⌘⇧W the window). It returns the
-    submenus and items for the app to interleave with its own per-app items; it does not set the
-    menu. `menu::build_tab_nav()` builds the tab-navigation block (Previous/Next Tab, ⌘1–⌘9).
+    the Config submenu (Edit Config / Reveal in Finder), the Window submenu (a checked per-window
+    selector) and the Edit submenu, with constants for the shortcuts every app shares (⌘W closes a
+    tab, ⌘⇧W the window). `menu::build_tab_menu()` builds the whole **Tab** submenu — Previous/Next
+    Tab, the Cycle Tabs with ⌘1/⌘2 toggle, Close / Pop Out / Find in Sidebar, the app's own item
+    groups, Tab 1–9 — and `menu::route()` decides which window a menu command acts on, including
+    from a popped-out tab's window. The app places the submenus; nothing here sets the menu.
   - `home::{home_state, show_home, close_home}` is the **home surface**: the window an app shows
     when no other window is open. It shows the window list, a load error, or (with no config) a
     prompt to create one, so a fresh install never launches to nothing. The app wires the actions,
