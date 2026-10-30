@@ -79,7 +79,7 @@ Two rules span every module below:
 - **`windows`** (`runtime`) — `plan` (pure: labels pinned to live ones, title-matched reconcile, menu
   entries), `WindowSet` (open/focus, close-keeps-listed, opt-in last-close quit, in-place rename,
   delete, home) over the app's `WindowHost`, `form` + `flow` (the New/Edit/Delete form and its menu
-  ids; the app only writes the `WindowWrite` to its config). Apps map their config to `WindowDecl`;
+  ids; the app only writes the `WindowWrite` to its config), `open_url` (`<scheme>://open?window=…` parsing; `WindowSet::last_focused` routes a link naming no window). Apps map their config to `WindowDecl`;
   no config-core edge. The `{window}:{within}` child-label scheme is `label` (zero-dep), including
   `rehome` for a child moving to another window label. Origin bookkeeping (which window a
   popped-out tab returns to) stays per app; it finds that window by title (`entry_for_title`).

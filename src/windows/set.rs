@@ -119,6 +119,8 @@ pub(crate) struct SetState {
     decls: Vec<WindowDecl>,
     /// Trimmed title → label of each open window.
     live: BTreeMap<String, String>,
+    /// Labels of open windows, least to most recently focused.
+    focus_order: Vec<String>,
     /// The app's popped-out windows; they count as open for the home surface.
     pub(crate) detached: usize,
     /// The last config load's error, cleared by every successful materialize/apply.
@@ -276,7 +278,20 @@ impl SetState {
     pub(crate) fn plan_destroyed(&mut self, label: &str) -> bool {
         let before = self.live.len();
         self.live.retain(|_, l| l != label);
+        self.focus_order.retain(|l| l != label);
         self.live.len() != before
+    }
+
+    /// Record that `label` took focus; ignored unless it is an open window.
+    pub(crate) fn plan_last_focused(&mut self, label: &str) {
+        if self.live.values().any(|l| l == label) {
+            self.focus_order.retain(|l| l != label);
+            self.focus_order.push(label.to_string());
+        }
+    }
+
+    pub(crate) fn last_focused(&self) -> Option<String> {
+        self.focus_order.last().cloned()
     }
 
     pub(crate) fn plan_rename(
@@ -460,6 +475,11 @@ impl WindowSet {
         self.lock().launch_label(label)
     }
 
+    /// The label of the most recently focused open window; `None` when no window is open.
+    pub fn last_focused(&self) -> Option<String> {
+        self.lock().last_focused()
+    }
+
     /// Whether any window is open, popped-out windows included.
     pub fn has_open(&self) -> bool {
         self.lock().has_open()
@@ -520,6 +540,7 @@ impl WindowSet {
                         tauri::WindowEvent::CloseRequested { .. } => {
                             set.on_close_requested(&app, &label)
                         }
+                        tauri::WindowEvent::Focused(true) => set.lock().plan_last_focused(&label),
                         tauri::WindowEvent::Destroyed => set.on_destroyed(&app, &label),
                         _ => {}
                     }
@@ -604,6 +625,21 @@ mod tests {
         let e = s.entries();
         assert_eq!(e.len(), 2);
         assert!(e[0].open && !e[1].open);
+    }
+
+    #[test]
+    fn plan_last_focused_follows_focus_and_forgets_closed_windows() {
+        let mut s = launched(&["a", "b"]);
+        assert_eq!(s.last_focused(), None);
+        let (la, lb) = (
+            s.label_for_title("a").unwrap(),
+            s.label_for_title("b").unwrap(),
+        );
+        s.plan_last_focused(&la);
+        s.plan_last_focused(&lb);
+        assert_eq!(s.last_focused(), Some(lb.clone()));
+        s.plan_destroyed(&lb);
+        assert_eq!(s.last_focused(), Some(la));
     }
 
     #[test]
