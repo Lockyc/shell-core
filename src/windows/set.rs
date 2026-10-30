@@ -485,6 +485,20 @@ mod tests {
     }
 
     #[test]
+    fn the_window_form_is_not_an_app_window() {
+        let s = SetState::default();
+        assert!(
+            !s.has_open(),
+            "an open form is not in `live`, so home still shows"
+        );
+        let mut s = SetState::default();
+        let fx = s.plan_materialize(vec![decl("shell window form")]);
+        assert!(built(&fx)
+            .iter()
+            .all(|l| *l != crate::windows::form::FORM_LABEL));
+    }
+
+    #[test]
     fn materialize_opens_only_open_on_start_windows_and_lists_all() {
         let mut later = decl("later");
         later.open_on_start = false;

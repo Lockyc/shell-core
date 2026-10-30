@@ -76,11 +76,6 @@ pub struct SpineConfig<'a> {
     pub windows: &'a [WindowEntry],
 }
 
-/// The Window submenu's leading item(s) as (id, label, accelerator): New Window… is first. The app
-/// handles `NEW_WINDOW` (it opens the form and writes the config), so the spine never consumes it.
-const WINDOW_MENU_LEAD: [(&str, &str, &str); 1] =
-    [(ids::NEW_WINDOW, "New Window…", ACCEL_NEW_WINDOW)];
-
 fn open_window_id(window_id: &str) -> String {
     format!("{}{window_id}", ids::OPEN_WINDOW_PREFIX)
 }
@@ -324,8 +319,10 @@ pub fn build_spine<R: tauri::Runtime, M: tauri::Manager<R>>(
     let close_window = MenuItemBuilder::with_id(ids::CLOSE_WINDOW, "Close Window")
         .accelerator(ACCEL_CLOSE_WINDOW)
         .build(manager)?;
-    let new_window = MenuItemBuilder::with_id(WINDOW_MENU_LEAD[0].0, WINDOW_MENU_LEAD[0].1)
-        .accelerator(WINDOW_MENU_LEAD[0].2)
+    // First in the submenu. The app handles `NEW_WINDOW` (opens the form, writes the config), so
+    // the spine never consumes it.
+    let new_window = MenuItemBuilder::with_id(ids::NEW_WINDOW, "New Window…")
+        .accelerator(ACCEL_NEW_WINDOW)
         .build(manager)?;
     let mut window_menu = SubmenuBuilder::new(manager, "Window")
         .item(&new_window)
@@ -398,12 +395,6 @@ mod tests {
         assert!(!handle_spine_event(ids::CLOSE_TAB, p));
         assert!(!handle_spine_event(ids::CLOSE_WINDOW, p));
         assert!(!handle_spine_event("app:something_else", p));
-    }
-
-    #[test]
-    fn new_window_is_first_in_the_window_menu() {
-        assert_eq!(WINDOW_MENU_LEAD[0].0, ids::NEW_WINDOW);
-        assert_eq!(WINDOW_MENU_LEAD[0].2, "Alt+Cmd+KeyN");
     }
 
     #[test]

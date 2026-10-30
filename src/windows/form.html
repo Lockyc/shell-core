@@ -28,14 +28,21 @@
   <body>
     <form id="f"></form>
     <script>
-      const { emit, listen } = window.__TAURI__.event;
+      const { listen } = window.__TAURI__.event;
       const f = document.getElementById('f');
 
       // config-core's `Colour::parse`: `#rgb` or `#rrggbb` hex. The one colour rule.
       function validColour(s) { return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s); }
 
       function el(tag, props) { return Object.assign(document.createElement(tag), props || {}); }
-      function send(p) { emit('shell:window-form-result', p); }
+      function send(p) {
+        fetch('/result?p=' + encodeURIComponent(JSON.stringify(p)))
+          .then((r) => { if (!r.ok) throw new Error(r.status); })
+          .catch(() => {
+            const e = document.querySelector('.err') || f.appendChild(el('div', { className: 'err' }));
+            e.textContent = 'Could not save. Try again.';
+          });
+      }
 
       function render(p) {
         f.replaceChildren();
