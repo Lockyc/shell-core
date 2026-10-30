@@ -89,9 +89,8 @@ Two rules span every module below:
 **Out — and why (do not "consolidate" these; the divergence is real):**
 - **IPC fan-out** — curator centralizes `emit_to_*chrome` helpers with plain event names; warden
   inlines `emit_to` at each site with app-namespaced events (`warden:refresh`) + a `forMe()` filter.
-  Different structures; a shared helper would fight both. (curator + lector do share the tiny
-  `emit_to_focused_chrome` helper by copy — lifting it would force a `serde` dep on shell-core to
-  name the `Serialize` bound, not worth it for a 5-line non-drift helper.)
+  Different structures; a shared helper would fight both. Which window a menu command targets is
+  shared (`menu::route`); the emit itself stays each app's.
 - **warden's native compositing + tab registry** — its `NSView` hole-punch (`geometry.rs`) and its
   `TabSlot` state machine over the `TerminalSurface` trait are a different beast from curator/lector's
   webview registries; genuinely per-app.
