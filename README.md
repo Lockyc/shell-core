@@ -43,6 +43,11 @@ It has two parts, split by Cargo feature:
     when no other window is open. It shows the window list, a load error, or (with no config) a
     prompt to create one, so a fresh install never launches to nothing. The app wires the actions,
     including the "Create a starter config" button.
+  - `windows` runs every app's config-declared windows: `WindowSet` opens, focuses, renames in
+    place and closes them from the app's declarations (and can quit when the last one closes), and
+    `form` + `flow` are the New/Edit/Delete Window form and its menu items. The app builds each
+    window's content and writes the form's result to its own config. `label` names a window's
+    child webviews (`{window}:{within}`).
   - `detach` pops a tab out into its own window: shell-core provides the window and its banner;
     the app moves the tab's content into it.
   - `compositing` positions content webviews in the area the sidebar leaves free (`HoleRect`,
@@ -61,7 +66,7 @@ It has two parts, split by Cargo feature:
 
 ## Status
 
-In use by warden, curator, and lector. Kept in each app, not here: sending events to the app's
+In use by warden, curator, lector and flotilla. Kept in each app, not here: sending events to the app's
 webviews, warden's config watcher and native compositing, each app's own menu items, and
 curator's check that only its sidebar can call certain commands.
 
