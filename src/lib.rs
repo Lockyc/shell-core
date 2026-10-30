@@ -83,6 +83,10 @@ pub fn materialize_scripts(dir: &std::path::Path) -> std::io::Result<()> {
 pub mod tabs;
 pub use tabs::pick_live_neighbour;
 
+/// The `{window}:{within}` child-label scheme. Zero-dependency, like [`tabs`].
+pub mod label;
+pub use label::{child_label, window_of};
+
 #[cfg(feature = "runtime")]
 pub mod menu;
 

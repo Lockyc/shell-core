@@ -76,9 +76,10 @@ Two rules span every module below:
 - **`home`** (`runtime`) — the surface an app shows instead of being stranded windowless, all three
   apps. `src/home.rs` has why it is served over its own scheme.
 - **`windows`** (`runtime`) — `plan` (pure: labels pinned to live ones, title-matched reconcile, menu
-  entries), `WindowSet` (open/focus, close-keeps-listed, in-place rename, delete, home) over the
-  app's `WindowHost`, and `form` (the New/Edit/Delete window form, reporting a `FormResult` the app
-  writes to its own config). Apps map their config to `WindowDecl`; no config-core edge.
+  entries), `WindowSet` (open/focus, close-keeps-listed, opt-in last-close quit, in-place rename,
+  delete, home) over the app's `WindowHost`, `form` + `flow` (the New/Edit/Delete form and its menu
+  ids; the app only writes the `WindowWrite` to its config). Apps map their config to `WindowDecl`;
+  no config-core edge. The `{window}:{within}` child-label scheme is `label` (zero-dep).
 - **`detach`** (`runtime`) — a popped-out tab's window, all three apps. **Invariant spanning
   `detach`, `geometry` and every consumer: the `token` passed to `detached_label` must derive from a
   durable tab identity**, because geometry persists a detached window keyed on that label; each

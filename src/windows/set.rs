@@ -13,7 +13,9 @@
 //! reopens on that label.
 //!
 //! Manage it directly (`app.manage(WindowSet::new(..))`): every window it builds reports its
-//! `Destroyed` to the managed `WindowSet`, so apps need not call [`WindowSet::on_destroyed`].
+//! `CloseRequested` (end its content pages; quit on the last user close when
+//! [`quit_on_last_close`](WindowSet::quit_on_last_close)) and `Destroyed` to the managed
+//! `WindowSet`, so apps need not call [`WindowSet::on_destroyed`].
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -36,6 +38,36 @@ pub trait WindowHost: Send + Sync + 'static {
     /// `label`'s declared title or colour changed in place (rename, or a reload's colour edit).
     /// The window may be closed: no live content need stand behind `label`.
     fn retitled(&self, app: &AppHandle, label: &str, decl: &WindowDecl);
+    /// Write a window form's result to the app's config. The resulting reload opens an added
+    /// window; the set has already retitled or dropped an edited or removed one.
+    fn write(&self, app: &AppHandle, write: &WindowWrite) -> Result<(), String>;
+    /// A window form's change failed (a refused title, a failed [`write`](Self::write)) and
+    /// nothing after it ran: show `message` to the user.
+    fn edit_failed(&self, app: &AppHandle, message: &str);
+    /// A window form's change landed: the listed windows (titles, which exist) differ from what
+    /// the app last showed, ahead of the config reload. Refresh whatever lists them.
+    fn changed(&self, _app: &AppHandle) {}
+}
+
+/// A config write a window form asks of the app ([`WindowHost::write`]). Titles are trimmed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WindowWrite {
+    /// Append a window.
+    Add {
+        title: String,
+        colour: Option<String>,
+    },
+    /// Change the window currently titled `title`. Write the colour first, then the title, so the
+    /// colour is addressed while the window still carries `title`.
+    Set {
+        title: String,
+        /// `None` = keep the title.
+        new_title: Option<String>,
+        /// `None` = keep the colour; `Some(None)` clears it.
+        colour: Option<Option<String>>,
+    },
+    /// Remove the window titled `title`.
+    Remove { title: String },
 }
 
 /// Why [`WindowSet::rename`] refused a title.
@@ -103,7 +135,7 @@ impl SetState {
         assign(&self.decls, &self.live)
     }
 
-    fn index_of(&self, label: &str) -> Option<(usize, Slot)> {
+    pub(super) fn index_of(&self, label: &str) -> Option<(usize, Slot)> {
         self.slots()
             .into_iter()
             .enumerate()
@@ -213,6 +245,17 @@ impl SetState {
         }
     }
 
+    /// Whether the user closing `label` should quit the app: it is the last open window the set
+    /// built, no pop-out is up, and the app opted in. A close the set made has already dropped
+    /// `label` from `live`, so it never quits; the form and pop-outs are never in `live`.
+    pub(crate) fn quits_on_close(&self, label: &str, opted_in: bool) -> bool {
+        opted_in
+            && !self.quitting
+            && self.detached == 0
+            && self.live.len() == 1
+            && self.live.values().any(|l| l == label)
+    }
+
     /// Mark `label` closed; whether it was open.
     pub(crate) fn plan_destroyed(&mut self, label: &str) -> bool {
         let before = self.live.len();
@@ -279,8 +322,9 @@ impl SetState {
 pub struct WindowSet {
     app_name: String,
     config_path: PathBuf,
-    host: Box<dyn WindowHost>,
+    pub(super) host: Box<dyn WindowHost>,
     state: Mutex<SetState>,
+    quit_on_last_close: bool,
 }
 
 impl WindowSet {
@@ -292,10 +336,18 @@ impl WindowSet {
             config_path,
             host: Box::new(host),
             state: Mutex::new(SetState::default()),
+            quit_on_last_close: false,
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, SetState> {
+    /// Quit the app when the user closes its last open window ([`SetState::quits_on_close`])
+    /// instead of showing the home surface.
+    pub fn quit_on_last_close(mut self, on: bool) -> Self {
+        self.quit_on_last_close = on;
+        self
+    }
+
+    pub(super) fn lock(&self) -> MutexGuard<'_, SetState> {
         self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -330,6 +382,20 @@ impl WindowSet {
     /// Whether [`mark_quitting`](Self::mark_quitting) has been called.
     pub fn is_quitting(&self) -> bool {
         self.lock().quitting
+    }
+
+    /// `label`'s window is asked to close (the user, or the set's own close); the close always
+    /// proceeds. Its content pages end first: by `Destroyed` the window has dropped its webviews
+    /// still running ([`close_window_pages`](crate::web::content::close_window_pages)). Then a
+    /// user close of the last window quits when opted in.
+    fn on_close_requested(&self, app: &AppHandle, label: &str) {
+        if let Some(window) = app.get_window(label) {
+            crate::web::content::close_window_pages(&window);
+        }
+        if self.lock().quits_on_close(label, self.quit_on_last_close) {
+            self.mark_quitting();
+            app.exit(0);
+        }
     }
 
     /// `label`'s window was destroyed: it stays listed, closed. Idempotent.
@@ -422,10 +488,15 @@ impl WindowSet {
                 let app = app.clone();
                 let label = slot.label.clone();
                 window.on_window_event(move |event| {
-                    if matches!(event, tauri::WindowEvent::Destroyed) {
-                        if let Some(set) = app.try_state::<WindowSet>() {
-                            set.on_destroyed(&app, &label);
+                    let Some(set) = app.try_state::<WindowSet>() else {
+                        return;
+                    };
+                    match event {
+                        tauri::WindowEvent::CloseRequested { .. } => {
+                            set.on_close_requested(&app, &label)
                         }
+                        tauri::WindowEvent::Destroyed => set.on_destroyed(&app, &label),
+                        _ => {}
                     }
                 });
             }
@@ -552,6 +623,36 @@ mod tests {
         assert!(matches!(s.home_sync(true, "/c.toml"), HomeSync::Skip));
         s.quitting = false;
         assert!(matches!(s.home_sync(true, "/c.toml"), HomeSync::Show(_)));
+    }
+
+    #[test]
+    fn last_user_close_quits_only_when_opted_in() {
+        let mut s = launched(&["work", "side"]);
+        assert!(!s.quits_on_close("work", true), "another window is open");
+        s.plan_destroyed("side");
+        assert!(s.quits_on_close("work", true));
+        assert!(!s.quits_on_close("work", false), "not opted in");
+        assert!(!s.quits_on_close("side", true), "a closed window");
+        assert!(
+            !s.quits_on_close(crate::windows::form::FORM_LABEL, true),
+            "the form is not an app window"
+        );
+        s.detached = 1;
+        assert!(!s.quits_on_close("work", true), "a pop-out is still up");
+        s.detached = 0;
+        s.quitting = true;
+        assert!(!s.quits_on_close("work", true), "already quitting");
+    }
+
+    #[test]
+    fn set_driven_close_never_quits() {
+        let mut s = launched(&["work"]);
+        assert_eq!(s.plan_delete("work"), [Effect::Close("work".into())]);
+        assert!(!s.quits_on_close("work", true));
+        let mut s = launched(&["work"]);
+        let (_, fx) = s.plan_apply(vec![]);
+        assert_eq!(fx, [Effect::Close("work".into())]);
+        assert!(!s.quits_on_close("work", true));
     }
 
     #[test]
