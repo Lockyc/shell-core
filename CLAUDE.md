@@ -68,9 +68,10 @@ Two rules span every module below:
   (`web::inspector`: an attached Web Inspector is forced into its own window and the hole
   re-applied, so it never covers the sidebar) and `web::ipc_global` (wry's `window.ipc` made
   replaceable before the first load, which is why every content webview is born on `about:blank`).
-- **`menu`** (`runtime`) — the App/Config/Window spine and the tab-nav block, all three apps. The
-  *items* are shared; each app's submenu composition and its `selectByOffset` cycle predicate stay
-  per-app (required divergence). The close/pop-out/find accelerators are constants here, the family
+- **`menu`** (`runtime`) — the App/Config/Window/Edit spine, the whole Tab submenu and `route`, all
+  apps. The Tab submenu's order and the popped-out routing rule live here; each app supplies its own
+  item groups, event names, origin lookup and `selectByOffset` cycle predicate (required
+  divergence). The close/pop-out/find accelerators are constants here, the family
   standard's one home.
 - **`home`** (`runtime`) — the surface an app shows instead of being stranded windowless, all three
   apps. `src/home.rs` has why it is served over its own scheme.
