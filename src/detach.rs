@@ -168,6 +168,23 @@ pub fn set_focused_hole<R: tauri::Runtime>(
     )
 }
 
+/// The banner's height in logical px: [`DETACH_HTML`]'s `#banner` (2.25rem at WebKit's default
+/// 16px root).
+pub const BANNER_H: f64 = 36.0;
+
+/// Where docked content goes before the page's first `set_hole_rect` lands: everything below the
+/// banner of a window whose real inner size is `size` (the size [`open_detached`] hands
+/// `birth_content`). The page then reports the exact hole; this only keeps the first frame from
+/// flashing full-height under the banner.
+pub fn birth_hole(size: tauri::LogicalSize<f64>) -> crate::compositing::HoleRect {
+    crate::compositing::HoleRect {
+        x: 0.0,
+        y: BANNER_H,
+        width: size.width,
+        height: (size.height - BANNER_H).max(0.0),
+    }
+}
+
 /// Open a detached tab's window: the banner-shell surface (this window's *primary* webview,
 /// serving [`DETACH_HTML`] over [`DETACH_SCHEME`]) plus whatever content the caller docks into it.
 ///
@@ -293,6 +310,24 @@ mod tests {
                 "detach.html no longer listens for {event}"
             );
         }
+    }
+
+    #[test]
+    fn banner_height_matches_the_page() {
+        // `#banner`'s height in rem at the WebKit default 16px root (the page sets no root size).
+        assert!(DETACH_HTML.contains("#banner { position: relative; height: 2.25rem;"));
+        assert_eq!(BANNER_H, 2.25 * 16.0);
+    }
+
+    #[test]
+    fn birth_hole_is_the_window_below_the_banner() {
+        let h = birth_hole(tauri::LogicalSize::new(1000.0, 700.0));
+        assert_eq!(
+            (h.x, h.y, h.width, h.height),
+            (0.0, BANNER_H, 1000.0, 700.0 - BANNER_H)
+        );
+        // A window shorter than the banner gets an empty hole, never a negative one.
+        assert_eq!(birth_hole(tauri::LogicalSize::new(400.0, 10.0)).height, 0.0);
     }
 
     #[test]
