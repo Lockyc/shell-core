@@ -135,9 +135,15 @@ pub fn open_form<R: tauri::Runtime>(
 
     let payload = payload_json(&mode, &taken_titles);
     *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some(Box::new(on_result));
+    let title = match mode {
+        FormMode::New => "New Window",
+        FormMode::Edit { .. } => "Edit Window",
+        FormMode::ConfirmDelete { .. } => "Delete Window",
+    };
 
     if let Some(window) = app.get_window(FORM_LABEL) {
         let _ = app.emit_to(FORM_LABEL, REFRESH_EVENT, payload);
+        let _ = window.set_title(title);
         let _ = window.set_focus();
         return;
     }
@@ -145,11 +151,6 @@ pub fn open_form<R: tauri::Runtime>(
     let url: tauri::Url = format!("{FORM_SCHEME}://localhost/")
         .parse()
         .expect("FORM_SCHEME url is a fixed, valid literal");
-    let title = match mode {
-        FormMode::New => "New Window",
-        FormMode::Edit { .. } => "Edit Window",
-        FormMode::ConfirmDelete { .. } => "Delete Window",
-    };
     let built =
         tauri::WebviewWindowBuilder::new(app, FORM_LABEL, tauri::WebviewUrl::CustomProtocol(url))
             .title(title)
