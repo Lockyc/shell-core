@@ -290,6 +290,7 @@ impl SetState {
         }
     }
 
+    /// The most recently focused open window's label.
     pub(crate) fn last_focused(&self) -> Option<String> {
         self.focus_order.last().cloned()
     }
@@ -532,6 +533,7 @@ impl WindowSet {
             Ok(window) => {
                 let app = app.clone();
                 let label = slot.label.clone();
+                let born_label = label.clone();
                 window.on_window_event(move |event| {
                     let Some(set) = app.try_state::<WindowSet>() else {
                         return;
@@ -545,6 +547,11 @@ impl WindowSet {
                         _ => {}
                     }
                 });
+                // A new window usually takes focus before the handler exists, so its
+                // `Focused(true)` is never seen.
+                if window.is_focused().unwrap_or(false) {
+                    self.lock().plan_last_focused(&born_label);
+                }
             }
             Err(e) => {
                 eprintln!(
@@ -640,6 +647,19 @@ mod tests {
         assert_eq!(s.last_focused(), Some(lb.clone()));
         s.plan_destroyed(&lb);
         assert_eq!(s.last_focused(), Some(la));
+    }
+
+    #[test]
+    fn a_freshly_built_window_can_be_recorded_as_focused() {
+        let mut s = launched(&["a", "b"]);
+        let lb = s.label_for_title("b").unwrap();
+        s.plan_last_focused(&lb);
+        assert_eq!(s.last_focused(), Some(lb));
+        s.plan_last_focused("not-open");
+        assert_eq!(
+            s.last_focused().as_deref(),
+            s.label_for_title("b").as_deref()
+        );
     }
 
     #[test]
