@@ -253,7 +253,9 @@ pub fn persist_as<R: Runtime>(app: &AppHandle<R>, label: &str, key: &str) {
 /// a handful of bytes, and pruning would need tab-identity knowledge this module deliberately
 /// does not have.
 fn is_excluded(state: &GeometryState, label: &str) -> bool {
-    label == crate::home::HOME_LABEL || state.skip.contains(label)
+    label == crate::home::HOME_LABEL
+        || label == crate::windows::form::FORM_LABEL
+        || state.skip.contains(label)
 }
 
 /// A monitor's work area (screen minus menu bar and Dock) in points, converted with **that
@@ -799,6 +801,7 @@ mod tests {
             aliases: Mutex::new(HashMap::new()),
         };
         assert!(is_excluded(&state, crate::home::HOME_LABEL));
+        assert!(is_excluded(&state, crate::windows::form::FORM_LABEL));
         assert!(is_excluded(&state, "sidebar"));
         assert!(!is_excluded(&state, "main"));
         assert!(!is_excluded(&state, "shell-detach:abc123"));
