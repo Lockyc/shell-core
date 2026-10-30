@@ -173,6 +173,7 @@ pub fn open_form<R: tauri::Runtime>(
         }
     });
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
