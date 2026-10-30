@@ -1,7 +1,7 @@
 //! The shared content-webview builder: one WKWebView hosting a remote site, built and destroyed
-//! only through this module. Everything app-specific (awareness, notifications, inspector
-//! watchers) is a hook on [`ContentHooks`] or something the caller does with the returned
-//! [`tauri::Webview`]; everything here is identical for any app that hosts remote sites.
+//! only through this module. Everything app-specific (awareness, notifications) is a hook on
+//! [`ContentHooks`] or something the caller does with the returned [`tauri::Webview`]; everything
+//! here, the inspector watcher included, is identical for any app that hosts remote sites.
 
 use std::sync::{Arc, OnceLock};
 
@@ -338,7 +338,9 @@ pub fn create_content_webview(
     let (nav_hooks, open_hooks, title_hooks, dl_hooks) =
         (hooks.clone(), hooks.clone(), hooks.clone(), hooks.clone());
 
-    let builder = WebviewBuilder::new(spec.label, WebviewUrl::External(spec.url.clone()))
+    // Born on `about:blank`; the page itself is navigated to once the webview exists (below).
+    let blank = Url::parse("about:blank").expect("static URL");
+    let builder = WebviewBuilder::new(spec.label, WebviewUrl::External(blank))
         // Let WKWebView deliver native OS file drops to the page's own HTML5 drop targets
         // (attach-to-compose, upload boxes, …). Tauri's default drag-drop handler consumes the
         // drop (emits a `tauri://drag-drop` event and returns `true`), which stops WKWebView from
@@ -432,8 +434,18 @@ pub fn create_content_webview(
         LogicalPosition::new(hole.x, hole.y),
         LogicalSize::new(hole.width.max(0.0), hole.height.max(0.0)),
     )?;
+    crate::compositing::record_hole(window.label(), hole);
     #[cfg(target_os = "macos")]
-    let _ = webview.with_webview(|pw| super::insecure::ensure_patched(pw.inner()));
+    {
+        let _ = webview.with_webview(|pw| super::insecure::ensure_patched(pw.inner()));
+        let (app, insp_label) = (window.app_handle().clone(), label.clone());
+        let _ = webview.with_webview(move |pw| {
+            super::ipc_global::relax(pw.inner());
+            super::inspector::watch(pw.inner(), &insp_label, &app);
+        });
+    }
+    // The real page loads only now, after `ipc_global::relax` has rewritten the scripts it runs.
+    webview.navigate(spec.url.clone())?;
     // Thin determinate loading bar at the top of this content webview.
     crate::progress_bar::install(&webview, spec.bar_rgba);
     Ok(webview)

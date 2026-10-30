@@ -7,7 +7,29 @@
 //! so it keeps its own rect type and native positioning. Only curator and lector place child
 //! webviews this way, and their code for it was byte-identical — so it lives here once.
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use tauri::{LogicalPosition, LogicalSize, Runtime, Window};
+
+/// The hole last applied to each window, by window label: what [`layout_webviews`] or a content
+/// webview's creation placed it at. [`crate::web::inspector`] re-applies it after undoing an
+/// attached inspector, which knows nothing of the app's own hole bookkeeping.
+static LAST_HOLE: Mutex<Option<HashMap<String, HoleRect>>> = Mutex::new(None);
+
+/// Records `hole` as window `label`'s current content hole.
+pub(crate) fn record_hole(label: &str, hole: HoleRect) {
+    LAST_HOLE
+        .lock()
+        .unwrap()
+        .get_or_insert_with(HashMap::new)
+        .insert(label.to_string(), hole);
+}
+
+/// The hole last applied to window `label`, if any.
+pub fn last_hole(label: &str) -> Option<HoleRect> {
+    LAST_HOLE.lock().unwrap().as_ref()?.get(label).copied()
+}
 
 /// Default sidebar width in logical px — the chrome's reset/first-run default and the offset
 /// [`initial_hole`] uses before the chrome's first `set_hole_rect`. MUST match `chrome.js`'s own
@@ -46,6 +68,7 @@ pub fn initial_hole(win_w: f64, win_h: f64) -> HoleRect {
 /// skipped — only the `add_child` content webviews are placed. All loaded tabs stack in the same
 /// hole; the app raises the active one, `load_on_open` tabs sit live behind it.
 pub fn layout_webviews<R: Runtime>(window: &Window<R>, hole: HoleRect) {
+    record_hole(window.label(), hole);
     for wv in window.webviews() {
         if wv.label() == window.label() {
             continue;
