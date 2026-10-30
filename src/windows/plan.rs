@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashSet};
 use crate::{home::HOME_LABEL, menu::WindowEntry};
 
 /// A window's child labels (`{window}:{within}`); zero-dependency, so they live in [`crate::label`].
-pub use crate::label::{child_label, window_of};
+pub use crate::label::{child_label, rehome, window_of, within_of};
 
 /// One declared window: what an app hands shell-core.
 #[derive(Debug, Clone, PartialEq)]
@@ -91,9 +91,15 @@ pub fn unique_label(base: &str, taken: &HashSet<String>) -> String {
 
 /// Labels no declared window may take: the home surface's and the window form's, so a window
 /// titled "shell home" gets `-2` instead of colliding with it (which would break geometry
-/// persistence and recovery).
+/// persistence and recovery); and the pop-out prefix, which [`window_of`] reads as the window
+/// label of every popped-out tab.
 pub fn reserved_labels() -> HashSet<String> {
-    HashSet::from([HOME_LABEL.to_string(), super::form::FORM_LABEL.to_string()])
+    let detach = crate::detach::DETACH_LABEL_PREFIX.trim_end_matches(':');
+    HashSet::from([
+        HOME_LABEL.to_string(),
+        super::form::FORM_LABEL.to_string(),
+        detach.to_string(),
+    ])
 }
 
 /// Slots for `decls` (config order). An open window (its trimmed title in `live`) keeps its live
@@ -177,6 +183,13 @@ pub fn menu_entries(slots: &[Slot]) -> Vec<WindowEntry> {
             colour: s.decl.colour.clone(),
         })
         .collect()
+}
+
+/// The entry of the window titled `title` (trimmed): its current label and whether it is open.
+/// How an app finds a popped-out tab's origin window, which it records by title because a label
+/// can't follow an in-place rename.
+pub fn entry_for_title<'a>(entries: &'a [WindowEntry], title: &str) -> Option<&'a WindowEntry> {
+    entries.iter().find(|e| e.title.trim() == title.trim())
 }
 
 #[cfg(test)]
@@ -267,6 +280,17 @@ mod tests {
         assert_eq!(entries[1].id, "side-project");
         assert!(!entries[1].open);
         assert_eq!(entries[0].colour.as_deref(), Some("#000000"));
+        let found = entry_for_title(&entries, " side project ").unwrap();
+        assert_eq!((found.id.as_str(), found.open), ("side-project", false));
+        assert!(entry_for_title(&entries, "gone").is_none());
+    }
+
+    #[test]
+    fn a_window_never_takes_the_pop_out_prefix_as_its_label() {
+        // `window_of("shell-detach:<token>")` is `shell-detach`: a window holding that label would
+        // own every pop-out as its child.
+        let slots = assign(&[decl("shell detach")], &BTreeMap::new());
+        assert_eq!(slots[0].label, "shell-detach-2");
     }
 
     #[test]

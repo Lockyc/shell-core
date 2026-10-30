@@ -14,6 +14,17 @@ pub fn window_of(child: &str) -> Option<&str> {
     child.rsplit_once(':').map(|(w, _)| w)
 }
 
+/// The within-window part of a [`child_label`]; a label with no window part is all within.
+pub fn within_of(child: &str) -> &str {
+    child.rsplit_once(':').map_or(child, |(_, w)| w)
+}
+
+/// `child` re-parented under the window label `window`: a tab whose window now holds (or will
+/// reopen on) another label.
+pub fn rehome(child: &str, window: &str) -> String {
+    child_label(window, within_of(child))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -25,5 +36,14 @@ mod tests {
             assert_eq!(window_of(&child_label(window, "tab-00ff-1")), Some(window));
         }
         assert_eq!(window_of("no-colon"), None);
+    }
+
+    #[test]
+    fn rehome_moves_a_child_to_another_window_label() {
+        assert_eq!(rehome("a:b:tab-1", "job"), "job:tab-1");
+        assert_eq!(rehome("work:tab-1", "x:y"), "x:y:tab-1");
+        assert_eq!(within_of("x:y:tab-1"), "tab-1");
+        // A label with no window part is all `within`.
+        assert_eq!(rehome("tab-1", "job"), "job:tab-1");
     }
 }

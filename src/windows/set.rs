@@ -35,11 +35,13 @@ pub trait WindowHost: Send + Sync + 'static {
     /// `label`'s window is closing or closed: drop its content. Called once per open window,
     /// before the set closes it (delete, a reload removing it) or after it was destroyed.
     fn closed(&self, app: &AppHandle, label: &str);
-    /// `label`'s declared title or colour changed in place (rename, or a reload's colour edit).
-    /// The window may be closed: no live content need stand behind `label`.
-    fn retitled(&self, app: &AppHandle, label: &str, decl: &WindowDecl);
-    /// Write a window form's result to the app's config. The resulting reload opens an added
-    /// window; the set has already retitled or dropped an edited or removed one.
+    /// `label`'s declared title or colour changed in place (rename, or a reload's colour edit)
+    /// from the window titled `old` (trimmed; `decl.title` for a colour edit). The window may be
+    /// closed: no live content need stand behind `label`.
+    fn retitled(&self, app: &AppHandle, label: &str, old: &str, decl: &WindowDecl);
+    /// Write a window form's result to the app's config. Runs before the set's own rename or
+    /// delete of an edited or removed window, so [`WindowSet::entries`] still lists it as it was;
+    /// the resulting reload opens an added window.
     fn write(&self, app: &AppHandle, write: &WindowWrite) -> Result<(), String>;
     /// A window form's change failed (a refused title, a failed [`write`](Self::write)) and
     /// nothing after it ran: show `message` to the user.
@@ -57,8 +59,7 @@ pub enum WindowWrite {
         title: String,
         colour: Option<String>,
     },
-    /// Change the window currently titled `title`. Write the colour first, then the title, so the
-    /// colour is addressed while the window still carries `title`.
+    /// Change the window currently titled `title`, in one write (`config_core::edit_window`).
     Set {
         title: String,
         /// `None` = keep the title.
@@ -104,7 +105,11 @@ pub(crate) enum Effect {
     /// `geometry::persist_as`.
     PersistAs { label: String, key: String },
     /// `host.retitled`.
-    Retitled { label: String, decl: WindowDecl },
+    Retitled {
+        label: String,
+        old: String,
+        decl: WindowDecl,
+    },
 }
 
 /// The set's state and its pure decisions; no Tauri calls.
@@ -120,6 +125,9 @@ pub(crate) struct SetState {
     pub(crate) load_error: Option<String>,
     /// Set once the app is quitting; never cleared.
     pub(crate) quitting: bool,
+    /// Set by the first materialize or apply: until then no window has ever been opened, so
+    /// `open_on_start` still gates (a config broken at launch, then fixed).
+    launched: bool,
 }
 
 /// What [`SetState::home_sync`] decides for the home surface.
@@ -195,6 +203,7 @@ impl SetState {
 
     pub(crate) fn plan_materialize(&mut self, decls: Vec<WindowDecl>) -> Vec<Effect> {
         self.load_error = None;
+        self.launched = true;
         self.decls = decls;
         self.slots()
             .into_iter()
@@ -217,7 +226,10 @@ impl SetState {
 
     pub(crate) fn plan_apply(&mut self, decls: Vec<WindowDecl>) -> (Vec<WindowOp>, Vec<Effect>) {
         self.load_error = None;
-        let ops = reconcile(&self.decls, &decls, &self.live);
+        let mut ops = reconcile(&self.decls, &decls, &self.live);
+        if !std::mem::replace(&mut self.launched, true) {
+            ops.retain(|op| !matches!(op, WindowOp::Open(s) if !s.decl.open_on_start));
+        }
         self.decls = decls;
         let effects = ops
             .iter()
@@ -228,7 +240,11 @@ impl SetState {
                     self.live.retain(|_, l| *l != label);
                     vec![Effect::Close(label)]
                 }
-                WindowOp::Update { label, decl } => vec![Effect::Retitled { label, decl }],
+                WindowOp::Update { label, decl } => vec![Effect::Retitled {
+                    label,
+                    old: decl.title.trim().to_string(),
+                    decl,
+                }],
             })
             .collect();
         (ops, effects)
@@ -298,6 +314,7 @@ impl SetState {
         });
         effects.push(Effect::Retitled {
             label: slot.label,
+            old: old.to_string(),
             decl: self.decls[idx].clone(),
         });
         Ok(effects)
@@ -431,6 +448,12 @@ impl WindowSet {
         self.lock().label_for_title(title)
     }
 
+    /// The entry of the declared window titled `title` (trimmed):
+    /// [`entry_for_title`](super::plan::entry_for_title) over [`entries`](Self::entries).
+    pub fn entry_for_title(&self, title: &str) -> Option<WindowEntry> {
+        super::plan::entry_for_title(&self.entries(), title).cloned()
+    }
+
     /// The label `label`'s window will hold at the next launch: differs from `label` after an
     /// in-place rename. Key per-window state that must survive a relaunch by this.
     pub fn launch_label(&self, label: &str) -> Option<String> {
@@ -476,7 +499,9 @@ impl WindowSet {
                     }
                 }
                 Effect::PersistAs { label, key } => crate::geometry::persist_as(app, &label, &key),
-                Effect::Retitled { label, decl } => self.host.retitled(app, &label, &decl),
+                Effect::Retitled { label, old, decl } => {
+                    self.host.retitled(app, &label, &old, &decl)
+                }
             }
         }
         self.sync_home(app);
@@ -700,6 +725,11 @@ mod tests {
             label: "work".into(),
             key: "job".into()
         }));
+        assert!(fx.contains(&Effect::Retitled {
+            label: "work".into(),
+            old: "work".into(),
+            decl: decl("job")
+        }));
         // The reload echo of the app's own config write keeps the window.
         let mut job = decl("job");
         job.colour = None;
@@ -770,6 +800,25 @@ mod tests {
     }
 
     #[test]
+    fn the_first_apply_after_a_failed_launch_load_honours_open_on_start() {
+        let mut later = decl("later");
+        later.open_on_start = false;
+        let mut s = SetState {
+            load_error: Some("bad".into()),
+            ..Default::default()
+        };
+        let (ops, fx) = s.plan_apply(vec![decl("work"), later.clone()]);
+        assert_eq!(built(&fx), ["work"]);
+        assert_eq!(ops.len(), 1, "{ops:?}");
+        assert_eq!(s.entries().len(), 2);
+        // Later reloads open an added window whatever its flag.
+        let mut more = decl("more");
+        more.open_on_start = false;
+        let (_, fx) = s.plan_apply(vec![decl("work"), later, more]);
+        assert_eq!(built(&fx), ["more"]);
+    }
+
+    #[test]
     fn apply_performs_reconcile_ops_as_effects() {
         let mut s = launched(&["work", "side"]);
         let mut work = decl("work");
@@ -780,6 +829,7 @@ mod tests {
         assert_eq!(built(&fx), ["new"]);
         assert!(fx.contains(&Effect::Retitled {
             label: "work".into(),
+            old: "work".into(),
             decl: work
         }));
         let e = s.entries();
