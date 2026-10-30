@@ -167,10 +167,73 @@ pub(crate) fn fnv1a_64(bytes: &[u8]) -> u64 {
 }
 
 /// Plugin-managed state: the loaded cache plus the exclusions and filename it was built with.
+/// `aliases` maps a live window's label to the key its bounds save under when that differs (see
+/// [`persist_as`]); an entry lives exactly as long as that window.
 struct GeometryState {
     filename: String,
     skip: HashSet<String>,
     cache: Mutex<HashMap<String, Rect>>,
+    aliases: Mutex<HashMap<String, String>>,
+}
+
+/// The cache key a live window's bounds save under: its alias, else its label.
+fn key_for(aliases: &HashMap<String, String>, label: &str) -> String {
+    aliases
+        .get(label)
+        .cloned()
+        .unwrap_or_else(|| label.to_string())
+}
+
+/// Record `label`'s bounds under its current key.
+fn record(
+    cache: &mut HashMap<String, Rect>,
+    aliases: &HashMap<String, String>,
+    label: &str,
+    rect: Rect,
+) {
+    cache.insert(key_for(aliases, label), rect);
+}
+
+/// Move `label`'s stored bounds to `key`, and when `live`, alias the window so later records land
+/// there too. A closed window has no live label to alias; its rect just moves.
+fn rekey(
+    cache: &mut HashMap<String, Rect>,
+    aliases: &mut HashMap<String, String>,
+    label: &str,
+    key: &str,
+    live: bool,
+) {
+    let from = key_for(aliases, label);
+    if from != key {
+        if let Some(rect) = cache.remove(&from) {
+            cache.insert(key.to_string(), rect);
+        }
+    }
+    if live && key != label {
+        aliases.insert(label.to_string(), key.to_string());
+    } else {
+        aliases.remove(label);
+    }
+}
+
+/// Save `label`'s bounds under `key` from now on, and move what is stored so far, so the window
+/// restores from `key` at next launch: a renamed window keeps its live label (Tauri labels are
+/// immutable) but launches next time under the label its new title gives it. No-op without the
+/// geometry plugin.
+pub fn persist_as<R: Runtime>(app: &AppHandle<R>, label: &str, key: &str) {
+    let Some(state) = app.try_state::<GeometryState>() else {
+        return;
+    };
+    let live = app.get_window(label).is_some();
+    let mut cache = state
+        .cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut aliases = state
+        .aliases
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    rekey(&mut cache, &mut aliases, label, key, live);
 }
 
 /// The one window shell-core owns that must never persist bounds: the home surface. Excluded
@@ -359,7 +422,13 @@ fn flush<R: Runtime>(app: &AppHandle<R>) {
             .cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        cache.extend(fresh);
+        let aliases = state
+            .aliases
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (label, rect) in fresh {
+            record(&mut cache, &aliases, &label, rect);
+        }
         encode(&cache)
     };
 
@@ -395,6 +464,7 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
                 filename: filename.clone(),
                 skip: skip.clone(),
                 cache: Mutex::new(cache),
+                aliases: Mutex::new(HashMap::new()),
             });
             Ok(())
         })
@@ -438,6 +508,16 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
             // or crash — only against a window closing before a normal one.)
             let tracked = window.clone();
             window.on_window_event(move |event| {
+                if matches!(event, WindowEvent::Destroyed) {
+                    // The alias belongs to this window; a later window on the label starts clean.
+                    tracked
+                        .state::<GeometryState>()
+                        .aliases
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .remove(tracked.label());
+                    return;
+                }
                 if !matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
                     return;
                 }
@@ -460,7 +540,11 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
                     .cache
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                cache.insert(tracked.label().to_string(), rect);
+                let aliases = state
+                    .aliases
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                record(&mut cache, &aliases, tracked.label(), rect);
             });
         })
         .on_event(|app, event| {
@@ -672,6 +756,32 @@ mod tests {
         assert_eq!(fnv1a_64(b"foobar"), 0x8594_4171_f739_67e8);
     }
 
+    /// A renamed window keeps its live label but must save, and next launch restore, under the
+    /// label it will then hold: the stored rect moves, and later records follow the alias.
+    #[test]
+    fn geometry_persist_as_saves_under_the_new_key() {
+        let mut cache = HashMap::from([("work".to_string(), rect(1.0, 2.0, 300.0, 400.0))]);
+        let mut aliases = HashMap::new();
+        rekey(&mut cache, &mut aliases, "work", "job", true);
+        assert_eq!(cache.get("job"), Some(&rect(1.0, 2.0, 300.0, 400.0)));
+        assert!(!cache.contains_key("work"));
+
+        record(&mut cache, &aliases, "work", rect(5.0, 6.0, 700.0, 800.0));
+        assert_eq!(cache.get("job"), Some(&rect(5.0, 6.0, 700.0, 800.0)));
+        assert!(!cache.contains_key("work"));
+
+        // A second rename follows the alias, not the stale live label.
+        rekey(&mut cache, &mut aliases, "work", "gig", true);
+        assert_eq!(cache.get("gig"), Some(&rect(5.0, 6.0, 700.0, 800.0)));
+        assert!(!cache.contains_key("job"));
+
+        // A closed window has no live label to alias: only its stored rect moves.
+        let mut cache = HashMap::from([("side".to_string(), rect(0.0, 0.0, 300.0, 300.0))]);
+        let mut aliases = HashMap::new();
+        rekey(&mut cache, &mut aliases, "side", "aside", false);
+        assert!(cache.contains_key("aside") && aliases.is_empty());
+    }
+
     /// The one behavioural rule `is_excluded` enforces — home and caller-skip windows never
     /// persist bounds, every other window does — is exactly the kind of thing a future refactor
     /// could silently invert with no error, just wrong windows restored next launch.
@@ -686,6 +796,7 @@ mod tests {
             filename: "test.json".to_string(),
             skip: ["sidebar".to_string()].into_iter().collect(),
             cache: Mutex::new(HashMap::new()),
+            aliases: Mutex::new(HashMap::new()),
         };
         assert!(is_excluded(&state, crate::home::HOME_LABEL));
         assert!(is_excluded(&state, "sidebar"));

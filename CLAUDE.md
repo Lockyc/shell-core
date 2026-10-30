@@ -74,8 +74,9 @@ Two rules span every module below:
   standard's one home.
 - **`home`** (`runtime`) — the surface an app shows instead of being stranded windowless, all three
   apps. `src/home.rs` has why it is served over its own scheme.
-- **`windows::plan`** (`runtime`) — the pure window plan: label assignment pinned to live labels,
-  title-matched reconcile, Window-menu entries. Apps map their config to `WindowDecl`; no config-core edge.
+- **`windows`** (`runtime`) — `plan` (pure: labels pinned to live ones, title-matched reconcile, menu
+  entries) and `WindowSet` (open/focus, close-keeps-listed, in-place rename, delete, home) over the
+  app's `WindowHost`. Apps map their config to `WindowDecl`; no config-core edge.
 - **`detach`** (`runtime`) — a popped-out tab's window, all three apps. **Invariant spanning
   `detach`, `geometry` and every consumer: the `token` passed to `detached_label` must derive from a
   durable tab identity**, because geometry persists a detached window keyed on that label; each
