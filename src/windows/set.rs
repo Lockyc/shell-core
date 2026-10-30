@@ -34,6 +34,7 @@ pub trait WindowHost: Send + Sync + 'static {
     /// before the set closes it (delete, a reload removing it) or after it was destroyed.
     fn closed(&self, app: &AppHandle, label: &str);
     /// `label`'s declared title or colour changed in place (rename, or a reload's colour edit).
+    /// The window may be closed: no live content need stand behind `label`.
     fn retitled(&self, app: &AppHandle, label: &str, decl: &WindowDecl);
 }
 
@@ -85,6 +86,16 @@ pub(crate) struct SetState {
     pub(crate) detached: usize,
     /// The last config load's error, cleared by every successful materialize/apply.
     pub(crate) load_error: Option<String>,
+    /// Set once the app is quitting; never cleared.
+    pub(crate) quitting: bool,
+}
+
+/// What [`SetState::home_sync`] decides for the home surface.
+#[derive(Debug)]
+pub(crate) enum HomeSync {
+    Skip,
+    Show(HomeState),
+    Close,
 }
 
 impl SetState {
@@ -133,10 +144,21 @@ impl SetState {
         )
     }
 
-    fn open(&mut self, slot: Slot) -> Effect {
-        self.live
-            .insert(slot.decl.title.trim().to_string(), slot.label.clone());
-        Effect::Build(Slot { open: true, ..slot })
+    /// Mark `slot` live and build it; a window opened on a label other than the one it launches
+    /// with next time (a live label took its usual one) saves its bounds under the launch label.
+    fn open(&mut self, slot: Slot) -> Vec<Effect> {
+        let title = slot.decl.title.trim();
+        let key = self
+            .decls
+            .iter()
+            .position(|d| d.title.trim() == title)
+            .map(|i| self.launch_label_at(i))
+            .filter(|k| *k != slot.label);
+        self.live.insert(title.to_string(), slot.label.clone());
+        let label = slot.label.clone();
+        let mut effects = vec![Effect::Build(Slot { open: true, ..slot })];
+        effects.extend(key.map(|key| Effect::PersistAs { label, key }));
+        effects
     }
 
     pub(crate) fn plan_materialize(&mut self, decls: Vec<WindowDecl>) -> Vec<Effect> {
@@ -145,8 +167,20 @@ impl SetState {
         self.slots()
             .into_iter()
             .filter(|s| !s.open && s.decl.open_on_start)
-            .map(|s| self.open(s))
+            .flat_map(|s| self.open(s))
             .collect()
+    }
+
+    /// What the home surface should do now. Nothing while quitting: the windows closing under ⌘Q
+    /// must not raise it.
+    pub(crate) fn home_sync(&self, config_exists: bool, config_path: &str) -> HomeSync {
+        if self.quitting {
+            return HomeSync::Skip;
+        }
+        match self.home(config_exists, config_path) {
+            Some(s) => HomeSync::Show(s),
+            None => HomeSync::Close,
+        }
     }
 
     pub(crate) fn plan_apply(&mut self, decls: Vec<WindowDecl>) -> (Vec<WindowOp>, Vec<Effect>) {
@@ -156,25 +190,27 @@ impl SetState {
         let effects = ops
             .iter()
             .cloned()
-            .map(|op| match op {
+            .flat_map(|op| match op {
                 WindowOp::Open(slot) => self.open(slot),
                 WindowOp::Close(label) => {
                     self.live.retain(|_, l| *l != label);
-                    Effect::Close(label)
+                    vec![Effect::Close(label)]
                 }
-                WindowOp::Update { label, decl } => Effect::Retitled { label, decl },
+                WindowOp::Update { label, decl } => vec![Effect::Retitled { label, decl }],
             })
             .collect();
         (ops, effects)
     }
 
-    pub(crate) fn plan_open_or_focus(&mut self, label: &str) -> Option<Effect> {
-        let (_, slot) = self.index_of(label)?;
-        Some(if slot.open {
-            Effect::Focus(slot.label)
+    pub(crate) fn plan_open_or_focus(&mut self, label: &str) -> Vec<Effect> {
+        let Some((_, slot)) = self.index_of(label) else {
+            return Vec::new();
+        };
+        if slot.open {
+            vec![Effect::Focus(slot.label)]
         } else {
             self.open(slot)
-        })
+        }
     }
 
     /// Mark `label` closed; whether it was open.
@@ -282,7 +318,18 @@ impl WindowSet {
     /// Focus `label`'s window, or reopen it if it is listed but closed. Unknown labels are ignored.
     pub fn open_or_focus(&self, app: &AppHandle, label: &str) {
         let effects = self.lock().plan_open_or_focus(label);
-        self.perform(app, effects.into_iter().collect());
+        self.perform(app, effects);
+    }
+
+    /// The app is quitting (call from `ExitRequested` / a quit-driven `CloseRequested`): windows
+    /// destroyed from now on still reach `host.closed`, but the home surface stays down.
+    pub fn mark_quitting(&self) {
+        self.lock().quitting = true;
+    }
+
+    /// Whether [`mark_quitting`](Self::mark_quitting) has been called.
+    pub fn is_quitting(&self) -> bool {
+        self.lock().quitting
     }
 
     /// `label`'s window was destroyed: it stays listed, closed. Idempotent.
@@ -394,12 +441,14 @@ impl WindowSet {
 
     fn sync_home(&self, app: &AppHandle) {
         let path = self.config_path.display().to_string();
-        let state = self.lock().home(self.config_path.exists(), &path);
-        match state {
-            Some(s) => {
+        let exists = self.config_path.exists();
+        let sync = self.lock().home_sync(exists, &path);
+        match sync {
+            HomeSync::Skip => {}
+            HomeSync::Show(s) => {
                 let _ = show_home(app, &s, &self.app_name);
             }
-            None => close_home(app),
+            HomeSync::Close => close_home(app),
         }
     }
 }
@@ -460,10 +509,35 @@ mod tests {
     #[test]
     fn open_or_focus_focuses_a_live_window() {
         let mut s = launched(&["work"]);
-        assert_eq!(
-            s.plan_open_or_focus("work"),
-            Some(Effect::Focus("work".into()))
-        );
+        assert_eq!(s.plan_open_or_focus("work"), [Effect::Focus("work".into())]);
+    }
+
+    #[test]
+    fn a_window_opened_off_its_launch_label_saves_under_it() {
+        // `a-b` is live on `a-b`; adding `a b` ahead of it opens `a b` on `a-b-2`, but next launch
+        // (config order, nothing live) `a b` takes `a-b`. Its bounds must save there.
+        let mut s = launched(&["a-b"]);
+        let (_, fx) = s.plan_apply(vec![decl("a b"), decl("a-b")]);
+        assert_eq!(built(&fx), ["a-b-2"]);
+        assert!(fx.contains(&Effect::PersistAs {
+            label: "a-b-2".into(),
+            key: "a-b".into()
+        }));
+        // A window opened on its launch label needs no re-key.
+        assert!(!launched(&["work"])
+            .plan_materialize(vec![decl("side")])
+            .iter()
+            .any(|e| matches!(e, Effect::PersistAs { .. })));
+    }
+
+    #[test]
+    fn quitting_skips_home_on_last_destroy() {
+        let mut s = launched(&["work"]);
+        s.quitting = true;
+        assert!(s.plan_destroyed("work"));
+        assert!(matches!(s.home_sync(true, "/c.toml"), HomeSync::Skip));
+        s.quitting = false;
+        assert!(matches!(s.home_sync(true, "/c.toml"), HomeSync::Show(_)));
     }
 
     #[test]
@@ -474,8 +548,8 @@ mod tests {
         s.plan_rename("work", "job").unwrap();
         s.plan_destroyed("work");
         assert_eq!(s.entries()[0].id, "job");
-        match s.plan_open_or_focus("job") {
-            Some(Effect::Build(slot)) => {
+        match s.plan_open_or_focus("job").as_slice() {
+            [Effect::Build(slot)] => {
                 assert_eq!(slot.label, "job");
                 assert_eq!(slot.decl.title, "job");
                 assert!(slot.open);
@@ -483,7 +557,7 @@ mod tests {
             other => panic!("expected Build, got {other:?}"),
         }
         assert!(s.has_open());
-        assert_eq!(s.plan_open_or_focus("nope"), None);
+        assert!(s.plan_open_or_focus("nope").is_empty());
     }
 
     #[test]
