@@ -16,6 +16,9 @@ pub mod ids {
     pub const CLOSE_WINDOW: &str = "shell:close_window";
     pub const NEW_WINDOW: &str = "shell:new_window";
     pub const OPEN_WINDOW_PREFIX: &str = "shell:open_window:";
+    /// The banner menu's items, `<prefix><window label>` (`windows::flow`).
+    pub const EDIT_WINDOW_PREFIX: &str = "shell:edit_window:";
+    pub const DELETE_WINDOW_PREFIX: &str = "shell:delete_window:";
     pub const TAB_PREV: &str = "shell:tab_prev";
     pub const TAB_NEXT: &str = "shell:tab_next";
     /// ⌘1 / ⌘2 aliases for Next / Previous Tab, built only in cycle mode.

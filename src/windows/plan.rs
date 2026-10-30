@@ -16,6 +16,9 @@ use std::collections::{BTreeMap, HashSet};
 
 use crate::{home::HOME_LABEL, menu::WindowEntry};
 
+/// A window's child labels (`{window}:{within}`); zero-dependency, so they live in [`crate::label`].
+pub use crate::label::{child_label, window_of};
+
 /// One declared window: what an app hands shell-core.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowDecl {
