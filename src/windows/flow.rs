@@ -72,7 +72,8 @@ pub fn menu_request(id: &str) -> Option<MenuRequest> {
 
 impl SetState {
     /// The steps `result` takes for the form opened on `target` (`None` for New Window). A
-    /// target gone since the form opened takes none; a refused title is the `Err` message.
+    /// refused change is the `Err` message: a title another window holds, or a target gone since
+    /// the form opened.
     pub(crate) fn plan_form(
         &self,
         target: Option<&str>,
@@ -120,7 +121,10 @@ impl SetState {
                 }),
                 FlowStep::Delete(label),
             ]),
-            _ => Ok(Vec::new()),
+            (FormResult::Update { .. } | FormResult::Delete, None) => {
+                Err("That window no longer exists".to_string())
+            }
+            (FormResult::Cancel, _) => Ok(Vec::new()),
         }
     }
 }
@@ -299,9 +303,15 @@ mod tests {
             .plan_form(Some("Work"), FormResult::Cancel)
             .unwrap()
             .is_empty());
-        // A window gone since the form opened: nothing to do.
+        // A window gone since the form opened: the change is refused, not dropped.
+        for result in [FormResult::Delete, update("Job", None)] {
+            assert_eq!(
+                s.plan_form(Some("Gone"), result),
+                Err("That window no longer exists".to_string())
+            );
+        }
         assert!(s
-            .plan_form(Some("Gone"), FormResult::Delete)
+            .plan_form(Some("Gone"), FormResult::Cancel)
             .unwrap()
             .is_empty());
     }
