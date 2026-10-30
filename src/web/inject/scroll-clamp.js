@@ -11,6 +11,9 @@
 // without the user scrolling or the page scrolling it itself — the position is put back, capped to
 // the new bottom. Content growing below a pinned scroller never moves it (an infinite feed is left
 // alone), and a scroller the user has moved off the bottom is never touched.
+//
+// tests/scroll_clamp.rs pins both halves against the local WebKit; its canary fails once WebKit
+// stops clamping mid-change, which is when this shim can start being retired.
 (function () {
   var AT_BOTTOM_PX = 2;
   // Wheel/trackpad (incl. momentum) and touch scroll natively, off the page's task loop, so a

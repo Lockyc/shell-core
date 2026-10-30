@@ -81,3 +81,22 @@ block2 = { version = "0.6", optional = true }
 [dev-dependencies]
 # The watch.rs hot-reload test writes a temp config dir and waits for the callback to fire.
 tempfile = "3"
+
+# tests/scroll_clamp.rs drives a real WKWebView on the main thread.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-web-kit = { version = "0.3", features = [
+    "WKWebView",
+    "WKWebViewConfiguration",
+    "WKUserContentController",
+    "WKUserScript",
+    "WKNavigation",
+    "objc2-app-kit",
+] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder", "NSView"] }
+objc2-foundation = { version = "0.3", features = ["NSDate", "NSRunLoop", "NSProcessInfo", "NSString", "NSGeometry"] }
+
+# WebKit must run on the process's main thread, which libtest never gives a test.
+[[test]]
+name = "scroll_clamp"
+harness = false
+required-features = ["runtime"]
