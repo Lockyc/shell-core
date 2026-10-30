@@ -445,6 +445,7 @@ pub fn create_content_webview(
             super::ipc_global::relax(pw.inner());
             super::inspector::watch(pw.inner(), &insp_label, &app);
         });
+        super::pointer::watch(&webview);
     }
     // The real page loads only now, after `ipc_global::relax` has rewritten the scripts it runs.
     webview.navigate(spec.url.clone())?;
