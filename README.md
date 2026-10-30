@@ -53,7 +53,10 @@ It has two parts, split by Cargo feature:
   - `web` is the content-webview layer: link routing and escape sentinels (`web::escape`), the
     WebKit login-store id for a session seed (`web::session`), self-signed TLS for allowlisted
     hosts (`web::insecure`, macOS), and the content-webview builder (`web::content`), which takes
-    a spec plus app hooks (`intercept`, `on_app_sentinel`, `on_title`, `on_download`).
+    a spec plus app hooks (`intercept`, `on_app_sentinel`, `on_title`, `on_download`). Every
+    content webview keeps an opened Web Inspector in its own window, off the sidebar
+    (`web::inspector`), and leaves the page free to define its own global `ipc`
+    (`web::ipc_global`), which Google Sheets needs to load.
 
 ## Status
 
