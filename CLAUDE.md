@@ -67,8 +67,12 @@ Two rules span every module below:
   `close_content_webview`, `close_window_pages`): a bare `close()` leaks the running page, and a
   hand-built webview lacks the key-verified sentinel handling, the inspector watcher
   (`web::inspector`: an attached Web Inspector is forced into its own window and the hole
-  re-applied, so it never covers the sidebar) and `web::ipc_global` (wry's `window.ipc` made
-  replaceable before the first load, which is why every content webview is born on `about:blank`).
+  re-applied, so it never covers the sidebar), `web::pointer` (emits `pointer-away` to the
+  window's chrome when the pointer enters content, so the sidebar's `:hover` can't freeze; each
+  app's chrome page maps it to chrome-core's `pointerAway()`) and `web::ipc_global` (wry's
+  `window.ipc` made replaceable before the first load, which is why every content webview is born
+  on `about:blank`). lector, which hand-builds its local-server webviews, calls `web::pointer::watch`
+  itself.
 - **`menu`** (`runtime`) — the App/Config/Window/Edit spine, the whole Tab submenu and `route`, all
   apps. The Tab submenu's order and the popped-out routing rule live here; each app supplies its own
   item groups, event names, origin lookup and `selectByOffset` cycle predicate (required
