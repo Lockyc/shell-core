@@ -37,26 +37,27 @@ Two rules span every module below:
   `launch-app.sh`'s `env -i`, `gen-latest-json.sh`'s two platform keys). The `<core>-dev` /
   `<core>-pin` recipe names wrapping `core-patch.sh` are the interface fleet tooling calls.
 - **`build_stamp()`** — git sha/date → `BUILD_GIT_SHA`/`BUILD_DATE` for the About box.
-- **`tabs::pick_live_neighbour`** (default surface) — the tab-unload policy, all three apps.
+- **`tabs::pick_live_neighbour`** (default surface) — the tab-unload policy, every app.
 - **`register_plugins()`** (`runtime`) — geometry, updater and process plugins plus the home and
-  detach custom protocols, for all three apps.
-  - **Deferred: drop `register_plugins`' `skip_labels` parameter.** No consumer uses it (all three
-    pass `&[]`), so it and its plumbing are dead: `geometry::plugin`'s `skip_labels`,
+  detach custom protocols, for every app.
+  - **Deferred: drop `register_plugins`' `skip_labels` parameter.** No consumer uses it (every app
+    passes `&[]`), so it and its plumbing are dead: `geometry::plugin`'s `skip_labels`,
     `GeometryState.skip`, the `state.skip.contains` clause in `geometry::is_excluded`, and the
     skip-list half of its test. Removing it changes `register_plugins`' signature, which forces a
-    re-pin of warden, curator and lector. **Unlock:** the next shell-core bump that is already
-    API-breaking for all three apps. Ride along with it; never cut a bump for this alone. **Next
+    re-pin of every app. **Unlock:** the next shell-core bump that is already
+    API-breaking for every app. Ride along with it; never cut a bump for this alone. **Next
     action:** delete the parameter and the plumbing above, drop the argument at each app's call
     site in that same lockstep re-pin, and remove the `skip_labels` mentions here and in the
     README.
-- **`geometry`** (`runtime`) — per-window size/position persistence, all three apps; the app hands it
+- **`geometry`** (`runtime`) — per-window size/position persistence, every app; the app hands it
   only a resolved config path. `src/geometry.rs`.
-- **`compositing`** (`runtime`) — the hole-punch webview layout, curator + lector. warden composites a
+- **`compositing`** (`runtime`) — the hole-punch webview layout, curator, lector + flotilla. warden composites a
   native `NSView` through its own `geometry.rs` — genuine divergence, left alone.
-- **`watch::watch_config`** (`runtime`) — config hot-reload, curator + lector. warden keeps its own
+- **`watch::watch_config`** (`runtime`) — config hot-reload, curator, lector + flotilla. warden keeps its own
   watcher: it parses inside and drives a main-thread reconcile, a different contract.
 - **`mouse_nav::install`** / **`progress_bar::install`** (`runtime`, macOS) — side-button navigation
-  and the loading bar for content WKWebViews, curator + lector (warden hosts native terminals).
+  and the loading bar for content WKWebViews, curator + lector; flotilla takes `mouse_nav` (warden
+  hosts native terminals).
 - **`web`** (`runtime`) — the content-webview layer: `escape` (link routing, escape sentinel),
   `session` (`data_store_id` over an app-supplied seed; the default session name stays in the
   app's config) and `insecure` (allowlisted self-signed TLS, macOS). **`data_store_id` names the
@@ -73,14 +74,16 @@ Two rules span every module below:
   item groups, event names, origin lookup and `selectByOffset` cycle predicate (required
   divergence). The close/pop-out/find accelerators are constants here, the family
   standard's one home.
-- **`home`** (`runtime`) — the surface an app shows instead of being stranded windowless, all three
-  apps. `src/home.rs` has why it is served over its own scheme.
+- **`home`** (`runtime`) — the surface an app shows instead of being stranded windowless, every
+  app. `src/home.rs` has why it is served over its own scheme.
 - **`windows`** (`runtime`) — `plan` (pure: labels pinned to live ones, title-matched reconcile, menu
   entries), `WindowSet` (open/focus, close-keeps-listed, opt-in last-close quit, in-place rename,
   delete, home) over the app's `WindowHost`, `form` + `flow` (the New/Edit/Delete form and its menu
   ids; the app only writes the `WindowWrite` to its config). Apps map their config to `WindowDecl`;
-  no config-core edge. The `{window}:{within}` child-label scheme is `label` (zero-dep).
-- **`detach`** (`runtime`) — a popped-out tab's window, all three apps. **Invariant spanning
+  no config-core edge. The `{window}:{within}` child-label scheme is `label` (zero-dep), including
+  `rehome` for a child moving to another window label. Origin bookkeeping (which window a
+  popped-out tab returns to) stays per app; it finds that window by title (`entry_for_title`).
+- **`detach`** (`runtime`) — a popped-out tab's window, every app. **Invariant spanning
   `detach`, `geometry` and every consumer: the `token` passed to `detached_label` must derive from a
   durable tab identity**, because geometry persists a detached window keyed on that label; each
   consumer pins its derivation with its own test. `src/detach.rs` and `src/detach.html` carry the
