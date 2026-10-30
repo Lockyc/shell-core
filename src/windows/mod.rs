@@ -2,6 +2,7 @@
 //! [`plan`] is the pure decision layer (labels, reconcile, menu entries); it makes no Tauri calls.
 //! [`set`] is the runtime [`WindowSet`] that performs it through the app's [`WindowHost`].
 
+pub mod form;
 pub mod plan;
 pub mod set;
 

@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>window</title>
+    <style>
+      html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        background: #14110f; color: #e8e2da; }
+      form { padding: 2.2rem 1.4rem 1.2rem; box-sizing: border-box; height: 100%; display: flex; flex-direction: column; gap: .5rem; }
+      label { font-size: .75rem; color: #9a938a; }
+      input[type=text] { background: #211d1a; border: 1px solid #322c28; border-radius: 6px; padding: .5rem .6rem;
+        color: inherit; font: inherit; }
+      input[type=text]:focus { outline: none; border-color: #6a5f55; }
+      .swatch { width: 14px; height: 14px; border-radius: 4px; background: #4a423c; flex: 0 0 auto;
+        box-shadow: 0 0 0 1px rgba(255,255,255,.08) inset; }
+      .row { display: flex; align-items: center; gap: .6rem; }
+      .row input { flex: 1 1 auto; }
+      .err { color: #ff8a8a; font-size: .75rem; min-height: 1rem; }
+      .msg { font-size: .9rem; margin: 0; }
+      .buttons { margin-top: auto; display: flex; justify-content: flex-end; gap: .5rem; }
+      button { background: #211d1a; border: 1px solid #322c28; border-radius: 8px; padding: .45rem 1rem;
+        color: inherit; font: inherit; cursor: pointer; }
+      button:hover:not(:disabled) { background: #2a2521; border-color: #4a423c; }
+      button:disabled { opacity: .45; cursor: default; }
+      button.danger { color: #ff8a8a; }
+    </style>
+  </head>
+  <body>
+    <form id="f"></form>
+    <script>
+      const { emit, listen } = window.__TAURI__.event;
+      const f = document.getElementById('f');
+
+      // config-core's `Colour::parse`: `#rgb` or `#rrggbb` hex. The one colour rule.
+      function validColour(s) { return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s); }
+
+      function el(tag, props) { return Object.assign(document.createElement(tag), props || {}); }
+      function send(p) { emit('shell:window-form-result', p); }
+
+      function render(p) {
+        f.replaceChildren();
+        f.onsubmit = (e) => e.preventDefault();
+        const cancel = el('button', { type: 'button', textContent: 'Cancel', onclick: () => send({ kind: 'cancel' }) });
+
+        if (p.mode === 'delete') {
+          const del = el('button', { type: 'button', className: 'danger', textContent: 'Delete',
+            onclick: () => send({ kind: 'delete' }) });
+          f.append(
+            el('p', { className: 'msg', textContent: `Delete the window “${p.title}”?` }),
+            el('div', { className: 'buttons' }),
+          );
+          f.lastChild.append(cancel, del);
+          del.focus();
+          return;
+        }
+
+        const edit = p.mode === 'edit';
+        const own = (p.title || '').trim();
+        const taken = new Set(p.taken.map((t) => t.trim()));
+        const title = el('input', { type: 'text', value: p.title || '', id: 'title' });
+        const colour = el('input', { type: 'text', value: p.colour || '', id: 'colour', placeholder: '#rrggbb (optional)' });
+        const sw = el('span', { className: 'swatch' });
+        const err = el('div', { className: 'err' });
+        const save = el('button', { type: 'submit', textContent: edit ? 'Save' : 'Create' });
+
+        function check() {
+          const t = title.value.trim();
+          const c = colour.value.trim();
+          let why = '';
+          if (!t) why = 'A title is required.';
+          else if (taken.has(t) && !(edit && t === own)) why = 'Another window already has that title.';
+          else if (c && !validColour(c)) why = 'Colour must be #rgb or #rrggbb.';
+          sw.style.background = c && validColour(c) ? c : '';
+          err.textContent = why;
+          save.disabled = !!why;
+        }
+        title.oninput = colour.oninput = check;
+        f.onsubmit = (e) => {
+          e.preventDefault();
+          if (save.disabled) return;
+          send({ kind: edit ? 'update' : 'create', title: title.value.trim(), colour: colour.value.trim() || null });
+        };
+        const buttons = el('div', { className: 'buttons' });
+        buttons.append(cancel, save);
+        const row = el('div', { className: 'row' });
+        row.append(colour, sw);
+        f.append(el('label', { htmlFor: 'title', textContent: 'Title' }), title,
+          el('label', { htmlFor: 'colour', textContent: 'Colour' }), row, err, buttons);
+        check();
+        title.focus();
+        title.select();
+      }
+
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') send({ kind: 'cancel' }); });
+      render(JSON.parse(window.__SHELL_WINDOW_FORM__));
+      listen('shell:window-form-refresh', (e) => render(JSON.parse(e.payload)));
+    </script>
+  </body>
+</html>

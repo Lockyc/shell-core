@@ -16,6 +16,7 @@ pub mod ids {
     pub const POP_OUT_TAB: &str = "shell:pop_out_tab";
     pub const FIND_IN_SIDEBAR: &str = "shell:find_in_sidebar";
     pub const CLOSE_WINDOW: &str = "shell:close_window";
+    pub const NEW_WINDOW: &str = "shell:new_window";
     pub const OPEN_WINDOW_PREFIX: &str = "shell:open_window:";
     pub const TAB_PREV: &str = "shell:tab_prev";
     pub const TAB_NEXT: &str = "shell:tab_next";
@@ -34,6 +35,9 @@ pub mod ids {
 /// respawns on next select), so there is nothing app-specific left to parameterise.
 pub const ACCEL_CLOSE_TAB: &str = "Cmd+KeyW";
 pub const ACCEL_CLOSE_WINDOW: &str = "Shift+Cmd+KeyW";
+
+/// New Window… — ⌥⌘N; ⌘N is left to apps that open a tab or document.
+pub const ACCEL_NEW_WINDOW: &str = "Alt+Cmd+KeyN";
 
 /// The family's Pop Out Tab accelerator. ⌘⇧O ("Out") — clear of every other menu accelerator in
 /// the family. In warden it must also not collide with libghostty's built-in tab chords, and there
@@ -71,6 +75,11 @@ pub struct SpineConfig<'a> {
     pub config_path: &'a Path,
     pub windows: &'a [WindowEntry],
 }
+
+/// The Window submenu's leading item(s) as (id, label, accelerator): New Window… is first. The app
+/// handles `NEW_WINDOW` (it opens the form and writes the config), so the spine never consumes it.
+const WINDOW_MENU_LEAD: [(&str, &str, &str); 1] =
+    [(ids::NEW_WINDOW, "New Window…", ACCEL_NEW_WINDOW)];
 
 fn open_window_id(window_id: &str) -> String {
     format!("{}{window_id}", ids::OPEN_WINDOW_PREFIX)
@@ -315,7 +324,12 @@ pub fn build_spine<R: tauri::Runtime, M: tauri::Manager<R>>(
     let close_window = MenuItemBuilder::with_id(ids::CLOSE_WINDOW, "Close Window")
         .accelerator(ACCEL_CLOSE_WINDOW)
         .build(manager)?;
+    let new_window = MenuItemBuilder::with_id(WINDOW_MENU_LEAD[0].0, WINDOW_MENU_LEAD[0].1)
+        .accelerator(WINDOW_MENU_LEAD[0].2)
+        .build(manager)?;
     let mut window_menu = SubmenuBuilder::new(manager, "Window")
+        .item(&new_window)
+        .separator()
         .minimize()
         .maximize()
         .fullscreen()
@@ -384,6 +398,18 @@ mod tests {
         assert!(!handle_spine_event(ids::CLOSE_TAB, p));
         assert!(!handle_spine_event(ids::CLOSE_WINDOW, p));
         assert!(!handle_spine_event("app:something_else", p));
+    }
+
+    #[test]
+    fn new_window_is_first_in_the_window_menu() {
+        assert_eq!(WINDOW_MENU_LEAD[0].0, ids::NEW_WINDOW);
+        assert_eq!(WINDOW_MENU_LEAD[0].2, "Alt+Cmd+KeyN");
+    }
+
+    #[test]
+    fn spine_does_not_consume_new_window() {
+        let p = std::path::Path::new("/tmp/does-not-matter.toml");
+        assert!(!handle_spine_event(ids::NEW_WINDOW, p));
     }
 
     #[test]
