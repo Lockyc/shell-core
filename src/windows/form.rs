@@ -2,8 +2,10 @@
 //! (prefilled title + colour) and Delete Window (confirm). It reports a [`FormResult`]; the app
 //! does the config write itself (shell-core never depends on config-core).
 //!
-//! The page is served over its own scheme (same reason as [`crate::home`]'s) and talks back with
-//! a Tauri event, [`RESULT_EVENT`], so it needs no app command. The page validates the title
+//! The page is served over its own scheme (same reason as [`crate::home`]'s) and reports back by
+//! requesting `/result?p=<json>` on that same scheme, which the protocol handler parses
+//! ([`parse_result_request`]) and delivers: no app command and no capability grant (an event emit
+//! would need `core:event:allow-emit`, which apps don't give). The page validates the title
 //! (non-empty, not in `taken_titles`, trimmed) and the colour (`#rgb`/`#rrggbb`, config-core's
 //! `Colour::parse` rule, reimplemented in the page) before enabling Save.
 
@@ -16,8 +18,6 @@ pub const FORM_LABEL: &str = "shell-window-form";
 const FORM_SCHEME: &str = "shell-window-form";
 const FORM_HTML: &str = include_str!("form.html");
 
-/// Page -> Rust: the user's choice, a [`FormResult`] JSON object.
-const RESULT_EVENT: &str = "shell:window-form-result";
 /// Rust -> page: a fresh payload for an already-open form.
 const REFRESH_EVENT: &str = "shell:window-form-refresh";
 
@@ -59,10 +59,55 @@ fn payload_json(mode: &FormMode, taken_titles: &[String]) -> String {
         .to_string()
 }
 
+/// The path the page requests to report its [`FormResult`] (JSON in the `p` query parameter).
+const RESULT_PATH: &str = "/result";
+
+/// The [`FormResult`] a page request carries, or `None` for any other request.
+fn parse_result_request(uri: &tauri::http::Uri) -> Option<FormResult> {
+    if uri.path() != RESULT_PATH {
+        return None;
+    }
+    let (_, json) = tauri::Url::parse(&uri.to_string())
+        .ok()?
+        .query_pairs()
+        .find(|(k, _)| k == "p")
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))?;
+    serde_json::from_str(&json).ok()
+}
+
+/// Serve [`FORM_HTML`], and deliver the page's result on [`RESULT_PATH`]: the callback runs first,
+/// then the form closes itself (its `Destroyed` handler finds the callback already taken, so it
+/// cannot answer twice).
 pub(crate) fn register_protocol<R: tauri::Runtime>(
     builder: tauri::Builder<R>,
 ) -> tauri::Builder<R> {
-    crate::home::serve_static(builder, FORM_SCHEME, FORM_HTML)
+    use tauri::Manager;
+    builder.register_uri_scheme_protocol(FORM_SCHEME, |ctx, req| {
+        let respond = |status: u16, ct: &str, body: Vec<u8>| {
+            tauri::http::Response::builder()
+                .status(status)
+                .header(tauri::http::header::CONTENT_TYPE, ct)
+                .body(body)
+                .expect("static response")
+        };
+        if req.uri().path() == RESULT_PATH {
+            return match parse_result_request(req.uri()) {
+                Some(result) => {
+                    finish(result);
+                    if let Some(w) = ctx.app_handle().get_window(FORM_LABEL) {
+                        let _ = w.close();
+                    }
+                    respond(200, "text/plain", b"ok".to_vec())
+                }
+                None => respond(400, "text/plain", b"bad result".to_vec()),
+            };
+        }
+        respond(
+            200,
+            "text/html; charset=utf-8",
+            FORM_HTML.as_bytes().to_vec(),
+        )
+    })
 }
 
 type Callback = Box<dyn FnOnce(FormResult) + Send>;
@@ -86,7 +131,7 @@ pub fn open_form<R: tauri::Runtime>(
     taken_titles: Vec<String>,
     on_result: impl FnOnce(FormResult) + Send + 'static,
 ) {
-    use tauri::{Emitter, Listener, Manager};
+    use tauri::{Emitter, Manager};
 
     let payload = payload_json(&mode, &taken_titles);
     *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some(Box::new(on_result));
@@ -122,17 +167,8 @@ pub fn open_form<R: tauri::Runtime>(
         return;
     };
 
-    let id = app.listen(RESULT_EVENT, |ev| {
-        if let Ok(result) = serde_json::from_str::<FormResult>(ev.payload()) {
-            finish(result);
-            // The form is done once it has reported; closing here cannot re-enter `finish`
-            // (the callback is already taken).
-        }
-    });
-    let handle = app.clone();
-    window.on_window_event(move |e| {
+    window.on_window_event(|e| {
         if matches!(e, tauri::WindowEvent::Destroyed) {
-            handle.unlisten(id);
             finish(FormResult::Cancel);
         }
     });
@@ -199,8 +235,37 @@ mod tests {
 
     #[test]
     fn the_form_page_owns_the_events_and_the_colour_rule() {
-        assert!(FORM_HTML.contains(RESULT_EVENT));
+        assert!(FORM_HTML.contains(RESULT_PATH));
         assert!(FORM_HTML.contains(REFRESH_EVENT));
+    }
+
+    #[test]
+    fn a_result_request_parses_and_other_requests_do_not() {
+        let u = |s: &str| s.parse::<tauri::http::Uri>().unwrap();
+        assert_eq!(
+            parse_result_request(&u(
+                "shell-window-form://localhost/result?p=%7B%22kind%22%3A%22delete%22%7D"
+            )),
+            Some(FormResult::Delete)
+        );
+        assert_eq!(
+            parse_result_request(&u("shell-window-form://localhost/")),
+            None
+        );
+        assert_eq!(
+            parse_result_request(&u("shell-window-form://localhost/result?p=nope")),
+            None
+        );
+    }
+
+    #[test]
+    fn a_result_answers_once_and_a_later_cancel_is_silent() {
+        let hits = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let h = hits.clone();
+        *PENDING.lock().unwrap() = Some(Box::new(move |r| h.lock().unwrap().push(r)));
+        finish(FormResult::Delete);
+        finish(FormResult::Cancel); // the window's Destroyed handler
+        assert_eq!(*hits.lock().unwrap(), vec![FormResult::Delete]);
     }
 
     #[test]

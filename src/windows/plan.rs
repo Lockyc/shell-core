@@ -86,8 +86,9 @@ pub fn unique_label(base: &str, taken: &HashSet<String>) -> String {
         .expect("unbounded range")
 }
 
-/// Labels no declared window may take: the home surface's and the window form's, so a window titled "shell home" gets
-/// `-2` instead of colliding with it (which would break geometry persistence and recovery).
+/// Labels no declared window may take: the home surface's and the window form's, so a window
+/// titled "shell home" gets `-2` instead of colliding with it (which would break geometry
+/// persistence and recovery).
 pub fn reserved_labels() -> HashSet<String> {
     HashSet::from([HOME_LABEL.to_string(), super::form::FORM_LABEL.to_string()])
 }
