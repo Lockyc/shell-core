@@ -18,14 +18,24 @@ dest="${APP_DEST:-/Applications/${APP_NAME}.app}"
 [ -d "$src" ] || { echo "install-app.sh: no app bundle at $src" >&2; exit 1; }
 [[ "$dest" == *.app ]] || { echo "install-app.sh: refusing — dest is not an .app bundle: $dest" >&2; exit 1; }
 
+# Gone means gone to LaunchServices too, which drops an app some 0.2s after its process exits. An
+# `open` inside that window is routed to the dead instance and fails with -600 (procNotFound).
+gone() {
+    ! pgrep -f "${dest}/" >/dev/null 2>&1 && [ -z "$(lsappinfo find bundlepath="$dest" 2>/dev/null)" ]
+}
+
 osascript -e "quit app \"${APP_NAME}\"" 2>/dev/null || true
 # The app flushes its window geometry on exit; give the quit up to ~5s to finish that before a
 # kill, which would lose or truncate it.
 for _ in $(seq 1 50); do
-    pgrep -f "${dest}/" >/dev/null 2>&1 || break
+    gone && break
     sleep 0.1
 done
 pkill -f "${dest}/" 2>/dev/null || true
+for _ in $(seq 1 30); do
+    gone && break
+    sleep 0.1
+done
 
 rm -rf "$dest"
 mkdir -p "$(dirname "$dest")"
