@@ -236,7 +236,8 @@ pub fn persist_as<R: Runtime>(app: &AppHandle<R>, label: &str, key: &str) {
     rekey(&mut cache, &mut aliases, label, key, live);
 }
 
-/// The one window shell-core owns that must never persist bounds: the home surface. Excluded
+/// The windows shell-core owns that must never persist bounds: the home surface and the window
+/// form. Excluded
 /// structurally — for **save** as well as restore — rather than by a caller-supplied list, since
 /// every consumer has it and none of them should have to remember to list it. `skip` is the
 /// caller's own transient windows on top.
@@ -448,7 +449,7 @@ fn flush<R: Runtime>(app: &AppHandle<R>) {
 }
 
 /// Build the geometry plugin. `filename` comes from [`geometry_filename`]; `skip_labels` are an
-/// app's own transient windows (the home surface is excluded structurally — see [`is_excluded`],
+/// app's own transient windows (the home surface and window form are excluded structurally — see [`is_excluded`],
 /// which also records why a detached-tab window is not).
 pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin<R> {
     let skip: HashSet<String> = skip_labels.iter().map(|s| s.to_string()).collect();

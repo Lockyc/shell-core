@@ -78,6 +78,10 @@ fn parse_result_request(uri: &tauri::http::Uri) -> Option<FormResult> {
 /// Serve [`FORM_HTML`], and deliver the page's result on [`RESULT_PATH`]: the callback runs first,
 /// then the form closes itself (its `Destroyed` handler finds the callback already taken, so it
 /// cannot answer twice).
+///
+/// A result is accepted only from the form's own webview: the scheme is registered on every
+/// webview, so a page in a content tab could otherwise load a `/result` URL while a form is open
+/// and rename or delete a window in the user's config.
 pub(crate) fn register_protocol<R: tauri::Runtime>(
     builder: tauri::Builder<R>,
 ) -> tauri::Builder<R> {
@@ -91,6 +95,9 @@ pub(crate) fn register_protocol<R: tauri::Runtime>(
                 .expect("static response")
         };
         if req.uri().path() == RESULT_PATH {
+            if ctx.webview_label() != FORM_LABEL {
+                return respond(403, "text/plain", b"not the form".to_vec());
+            }
             return match parse_result_request(req.uri()) {
                 Some(result) => {
                     finish(result);

@@ -1,11 +1,3 @@
-/// A same-tab/main-frame navigation: allow it. Link clicks never reach this as a cross-site
-/// navigation — the escape-click shim routes those through [`route_link`] first — so what
-/// arrives here is the page's own navigation (redirects, scripted `location` changes, SSO
-/// bounces), which must be free to follow.
-pub fn allow_same_tab_navigation(_url: &str) -> bool {
-    true
-}
-
 /// Where a link the user followed out of a tab goes.
 #[derive(Debug, PartialEq, Eq)]
 pub enum LinkRoute {
@@ -39,7 +31,7 @@ pub fn open_command(url: &str) -> (&'static str, Vec<String>) {
 /// Hand a URL to the macOS default handler (the user's default browser). Side-effecting; not unit-tested.
 pub fn escape_to_default_browser(url: &str) {
     let (cmd, args) = open_command(url);
-    let _ = std::process::Command::new(cmd).args(args).spawn();
+    crate::spawn_reaped(std::process::Command::new(cmd).args(args));
 }
 
 /// Schemes the shell will hand to the macOS opener for an in-app `window.open` / new-window
@@ -69,8 +61,8 @@ fn is_google_host(host: &str) -> bool {
 /// Google's link redirector — `https://www.google.com/url?q=<target>` — which Google Chat and
 /// Gmail interpose on every external link a message contains. Its whole purpose is to *leave*,
 /// so it is unwrapped to its real destination before any routing decision runs. That matters in
-/// both directions: a wrapper clicked as a plain same-tab navigation would otherwise be waved
-/// through by [`allow_same_tab_navigation`] and bounce the tab out to the external site, while a
+/// both directions: a wrapper clicked as a plain same-tab navigation would otherwise be allowed
+/// (every same-tab navigation is) and bounce the tab out to the external site, while a
 /// wrapper pointing back at the tab's own host is ordinary in-app navigation that must not
 /// escape. Unwrapping also hands the browser the clean URL rather than Google's interstitial.
 ///
@@ -183,14 +175,6 @@ pub fn sentinel_key_ok(url: &url::Url, expected: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn same_tab_navigation_is_always_allowed() {
-        assert!(allow_same_tab_navigation(
-            "https://mail.google.com/mail/u/0/#inbox"
-        ));
-        assert!(allow_same_tab_navigation("https://example.com/whatever"));
-    }
 
     #[test]
     fn open_command_shells_to_macos_open() {

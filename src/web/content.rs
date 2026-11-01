@@ -216,11 +216,9 @@ fn classify_navigation(url: &Url, nonce: &str, home_url: &str) -> NavAction {
             return NavAction::EscapeToBrowser(target);
         }
     }
-    if escape::allow_same_tab_navigation(url.as_str()) {
-        NavAction::Allow
-    } else {
-        NavAction::Swallow
-    }
+    // Anything else is the page's own navigation (redirects, scripted `location` changes, SSO
+    // bounces) and must be free to follow: link clicks were already routed by `route_link`.
+    NavAction::Allow
 }
 
 /// What a link or navigation resolves to once [`ContentHooks::intercept`] has had its say; the
@@ -229,7 +227,7 @@ fn classify_navigation(url: &Url, nonce: &str, home_url: &str) -> NavAction {
 enum NavDecision {
     /// The app's `intercept` took it: nothing else happens.
     Consumed,
-    /// Refused with no side effect (a forged/undecodable sentinel, or a disallowed scheme).
+    /// Refused with no side effect (a forged/undecodable sentinel).
     Refuse,
     /// Let the tab follow it.
     Allow,

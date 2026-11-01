@@ -54,19 +54,23 @@ pub const LAUNCH_APP_SH: &str = include_str!("../scripts/launch-app.sh");
 /// `guard`) behind every app's `<core>-dev` / `<core>-pin` recipes and its gate's patch guard.
 pub const CORE_PATCH_SH: &str = include_str!("../scripts/core-patch.sh");
 
+/// Every embedded script, file name → body: the one roster `materialize_scripts` writes and the
+/// tests guard, so a script added here is both materialized and checked.
+pub const SCRIPTS: [(&str, &str); 5] = [
+    ("release.sh", RELEASE_SH),
+    ("gen-latest-json.sh", GEN_LATEST_SH),
+    ("install-app.sh", INSTALL_APP_SH),
+    ("launch-app.sh", LAUNCH_APP_SH),
+    ("core-patch.sh", CORE_PATCH_SH),
+];
+
 /// Materialize the embedded scripts into `<dir>` (each git-ignored in the consumer),
 /// preserving the executable bit. Call from `build.rs` with the app's `scripts/` dir so a plain
 /// clone can build + release from the pinned shell-core rev without a tracked copy to drift.
 ///
 /// The per-app `scripts/tooling.env` is NOT written here — it is tracked, committed once per app.
 pub fn materialize_scripts(dir: &std::path::Path) -> std::io::Result<()> {
-    for (name, body) in [
-        ("release.sh", RELEASE_SH),
-        ("gen-latest-json.sh", GEN_LATEST_SH),
-        ("install-app.sh", INSTALL_APP_SH),
-        ("launch-app.sh", LAUNCH_APP_SH),
-        ("core-patch.sh", CORE_PATCH_SH),
-    ] {
+    for (name, body) in SCRIPTS {
         let path = dir.join(name);
         std::fs::write(&path, body)?;
         #[cfg(unix)]
@@ -117,6 +121,18 @@ pub mod web;
 
 #[cfg(feature = "runtime")]
 pub mod mouse_nav;
+
+/// Spawn `cmd` without blocking the caller, and wait on it from a throwaway thread — the crate's
+/// one spawn path for a fire-and-forget `open`. Dropping a `Child` never reaps it, so an unwaited
+/// `open` would linger as a zombie for the app's life.
+#[cfg(feature = "runtime")]
+pub(crate) fn spawn_reaped(cmd: &mut std::process::Command) {
+    if let Ok(mut child) = cmd.spawn() {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
+}
 
 #[cfg(feature = "runtime")]
 pub mod progress_bar;
@@ -178,9 +194,9 @@ mod runtime {
     ///
     /// `skip_labels` are for an app's own transient windows, excluded from both save and restore.
     /// No caller passes any — all three apps pass `&[]` — and the parameter is slated for removal
-    /// at the next API-breaking bump (the deferral is in CLAUDE.md). The home surface and every
-    /// detached-tab window are excluded structurally inside [`crate::geometry`] and must not be
-    /// listed here.
+    /// at the next API-breaking bump (the deferral is in CLAUDE.md). The home surface and the
+    /// window form are excluded structurally inside [`crate::geometry`] and must not be listed
+    /// here; a detached-tab window is deliberately kept (`geometry::is_excluded` says why).
     pub fn register_plugins<R: Runtime>(
         builder: Builder<R>,
         config_path: Option<&Path>,
