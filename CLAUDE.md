@@ -55,6 +55,12 @@ Two rules span every module below:
   native `NSView` through its own `geometry.rs` — genuine divergence, left alone.
 - **`watch::watch_config`** (`runtime`) — config hot-reload, curator, lector + flotilla. warden keeps its own
   watcher: it parses inside and drives a main-thread reconcile, a different contract.
+- **`banner`** (`runtime`, macOS) — native notifications (`UNUserNotificationCenter`), curator +
+  flotilla; a click raises the banner's window and hands the app `(window, tab)`. Every content
+  webview's finished download is one. **Deferred: warden onto `banner`.** warden still carries its
+  own copy in `notify.rs`, which its unmerged `amux-retirement` branch is rewriting. **Unlock:**
+  that branch merging. **Next action:** replace warden's delegate/`fire` with `banner::init`/`fire`
+  (its click callback selects the tab) and delete this bullet's deferral.
 - **`mouse_nav::install`** / **`progress_bar::install`** (`runtime`, macOS) — side-button navigation
   and the loading bar for content WKWebViews, curator + lector; flotilla takes `mouse_nav` (warden
   hosts native terminals).

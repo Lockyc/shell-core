@@ -106,6 +106,10 @@ pub mod compositing;
 #[cfg(feature = "runtime")]
 pub mod watch;
 
+/// Native macOS banners that surface the tab that raised them when clicked.
+#[cfg(feature = "runtime")]
+pub mod banner;
+
 /// App-agnostic content-webview layer: link routing, login-store identity, allowlisted
 /// self-signed TLS, the content-webview builder.
 #[cfg(feature = "runtime")]
