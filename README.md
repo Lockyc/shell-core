@@ -56,8 +56,8 @@ It has two parts, split by Cargo feature:
     writes); the app re-parses the file. Used by curator, lector and flotilla.
   - `mouse_nav` drives WKWebView back/forward from the mouse side buttons, and `progress_bar` draws
     the page-load bar on each content webview. Used by curator and lector; flotilla uses `mouse_nav`.
-  - `banner` posts native macOS notifications; clicking one raises its window and hands the app
-    the tab that raised it. Used by curator and flotilla.
+  - `banner` posts native macOS notifications; clicking one hands the app the window and tab that
+    raised it. Used by curator, warden and flotilla.
   - `web` is the content-webview layer: link routing and escape sentinels (`web::escape`), the
     WebKit login-store id for a session seed (`web::session`), self-signed TLS for allowlisted
     hosts (`web::insecure`, macOS), and the content-webview builder (`web::content`), which takes

@@ -419,7 +419,13 @@ pub fn create_content_webview(
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| url.to_string());
                 let (title, body) = crate::banner::download_text(&name, success);
-                crate::banner::fire(title, &body, webview.window().label(), webview.label());
+                crate::banner::fire(&crate::banner::Banner {
+                    title,
+                    body: &body,
+                    window: webview.window().label(),
+                    tab: webview.label(),
+                    context: None,
+                });
             }
             true
         });
