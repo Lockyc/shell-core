@@ -9,17 +9,23 @@ use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
 use objc2::{ffi, msg_send, sel};
 use objc2_foundation::NSString;
 use std::ffi::c_void;
-use std::sync::{Once, OnceLock};
+use std::sync::{Once, RwLock};
 
-static ALLOW: OnceLock<Vec<String>> = OnceLock::new();
+static ALLOW: RwLock<Vec<String>> = RwLock::new(Vec::new());
 
-/// Record which hosts may use self-signed certs. Call once at startup.
+/// Set which hosts may use self-signed certs, replacing the previous list. Call at startup and
+/// on every config reload: a host removed from the config stops being trusted at once, and one
+/// added works without a restart.
 pub fn set_allowlist(hosts: Vec<String>) {
-    let _ = ALLOW.set(hosts);
+    *ALLOW.write().unwrap_or_else(|e| e.into_inner()) = hosts;
 }
 
 fn host_allowed(host: &str) -> bool {
-    ALLOW.get().is_some_and(|v| v.iter().any(|h| h == host))
+    ALLOW
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|h| h == host)
 }
 
 // NSURLSessionAuthChallengeDisposition values.
@@ -64,11 +70,9 @@ unsafe extern "C-unwind" fn did_receive_auth_challenge(
 }
 
 /// Add the auth-challenge handler to the content webview's navigation-delegate class. Idempotent
-/// (only adds once). No-op when no hosts are allowlisted.
+/// (only adds once). Installed even while the allowlist is empty — a reload can add a host later,
+/// and the handler falls through to default handling for every host not on the list.
 pub fn ensure_patched(webview_ptr: *mut c_void) {
-    if ALLOW.get().is_none_or(|v| v.is_empty()) {
-        return;
-    }
     static ONCE: Once = Once::new();
     unsafe {
         let Some(webview) = (webview_ptr as *mut AnyObject).as_ref() else {
@@ -97,5 +101,24 @@ pub fn ensure_patched(webview_ptr: *mut c_void) {
                 c"v@:@@@?".as_ptr(),
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_allowlist_is_replaced_on_reload() {
+        set_allowlist(vec!["nas.lan".into()]);
+        assert!(host_allowed("nas.lan"));
+        set_allowlist(vec!["udm.lan".into()]);
+        assert!(
+            !host_allowed("nas.lan"),
+            "a removed host must stop being trusted"
+        );
+        assert!(host_allowed("udm.lan"));
+        set_allowlist(vec![]);
+        assert!(!host_allowed("udm.lan"));
     }
 }
