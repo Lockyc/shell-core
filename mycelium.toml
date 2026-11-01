@@ -1,5 +1,5 @@
 name    = "shell-core"
-summary = "The shared Tauri app-shell + release tooling for warden, curator, and lector"
+summary = "The shared Tauri app-shell + release tooling for warden, curator, lector, and flotilla"
 kind    = "library"
 status  = "active"
 tags    = ["tauri", "release", "tooling", "shared-core", "macos"]
