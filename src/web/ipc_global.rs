@@ -20,12 +20,17 @@ use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyClass, AnyObject};
 use objc2_foundation::NSString;
 
-/// The start of wry's `window.ipc` definition (`src/wkwebview/mod.rs`, 0.57.1).
-const WRY_IPC_DEFINE: &str = "Object.defineProperty(window, 'ipc', { value:";
+/// The start of wry's `window.ipc` definition (`src/wkwebview/mod.rs`). The whitespace before
+/// `value:` differs by wry version — a newline and indent in 0.55.1, one space in 0.57.1 — and the
+/// apps lock different versions, so [`relaxed`] skips it.
+const WRY_IPC_DEFINE: &str = "Object.defineProperty(window, 'ipc', {";
 
 /// `source` with the `ipc` property made configurable and writable, when it is wry's definition.
 fn relaxed(source: &str) -> Option<String> {
-    let rest = source.strip_prefix(WRY_IPC_DEFINE)?;
+    let rest = source
+        .strip_prefix(WRY_IPC_DEFINE)?
+        .trim_start()
+        .strip_prefix("value:")?;
     Some(format!(
         "Object.defineProperty(window, 'ipc', {{ configurable: true, writable: true, value:{rest}"
     ))
@@ -90,6 +95,19 @@ mod tests {
             relaxed(WRY_0_57_1).as_deref(),
             Some(
                 r#"Object.defineProperty(window, 'ipc', { configurable: true, writable: true, value: Object.freeze({ postMessage: function(s) { window.webkit.messageHandlers.ipc.postMessage(s) } }) });"#
+            )
+        );
+    }
+
+    /// wry 0.55.1's exact script (curator, lector and warden lock it).
+    const WRY_0_55_1: &str = "Object.defineProperty(window, 'ipc', {\n  value: Object.freeze({postMessage: function(s) {window.webkit.messageHandlers.ipc.postMessage(s);}})\n});";
+
+    #[test]
+    fn wry_0_55_1_multiline_definition_is_relaxed_too() {
+        assert_eq!(
+            relaxed(WRY_0_55_1).as_deref(),
+            Some(
+                "Object.defineProperty(window, 'ipc', { configurable: true, writable: true, value: Object.freeze({postMessage: function(s) {window.webkit.messageHandlers.ipc.postMessage(s);}})\n});"
             )
         );
     }
