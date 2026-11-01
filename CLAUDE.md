@@ -60,7 +60,9 @@ Two rules span every module below:
   hosts native terminals).
 - **`web`** (`runtime`) — the content-webview layer: `escape` (link routing, escape sentinel),
   `session` (`data_store_id` over an app-supplied seed; the default session name stays in the
-  app's config) and `insecure` (allowlisted self-signed TLS, macOS). **`data_store_id` names the
+  app's config), `insecure` (allowlisted self-signed TLS, macOS) and `attachment` (every
+  `Content-Disposition: attachment` response saves, even one WebKit could display, macOS).
+  **`data_store_id` names the
   WebKit store holding every login** — a change to it logs everyone out; its parity test pins
   curator's ids. `content` builds every content webview from a spec plus app hooks. **A content
   webview is only built or destroyed through `web::content`** (`create_content_webview`,
