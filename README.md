@@ -56,11 +56,14 @@ It has two parts, split by Cargo feature:
     writes); the app re-parses the file. Used by curator, lector and flotilla.
   - `mouse_nav` drives WKWebView back/forward from the mouse side buttons, and `progress_bar` draws
     the page-load bar on each content webview. Used by curator and lector; flotilla uses `mouse_nav`.
+  - `banner` posts native macOS notifications; clicking one raises its window and hands the app
+    the tab that raised it. Used by curator and flotilla.
   - `web` is the content-webview layer: link routing and escape sentinels (`web::escape`), the
     WebKit login-store id for a session seed (`web::session`), self-signed TLS for allowlisted
     hosts (`web::insecure`, macOS), and the content-webview builder (`web::content`), which takes
-    a spec plus app hooks (`intercept`, `on_app_sentinel`, `on_title`, `on_download`). Every
-    content webview keeps an opened Web Inspector in its own window, off the sidebar
+    a spec plus app hooks (`intercept`, `on_app_sentinel`, `on_title`). Every content webview
+    saves `attachment` responses to `~/Downloads` (`web::attachment`), reports each finished
+    download as a banner, keeps an opened Web Inspector in its own window, off the sidebar
     (`web::inspector`), and leaves the page free to define its own global `ipc`
     (`web::ipc_global`), which Google Sheets needs to load.
 

@@ -51,7 +51,6 @@ pub struct ContentSpec<'a> {
 type InterceptFn = dyn Fn(&AppHandle, &str, &Url, LinkOrigin) -> bool + Send + Sync;
 type AppSentinelFn = dyn Fn(&AppHandle, &str, &Url) + Send + Sync;
 type TitleFn = dyn Fn(&tauri::Webview, &str) + Send + Sync;
-type DownloadFn = dyn Fn(&AppHandle, &str, &str, bool) + Send + Sync;
 
 /// The app's say in a content webview's behaviour. All optional; the default does nothing extra.
 #[derive(Default, Clone)]
@@ -74,8 +73,6 @@ pub struct ContentHooks {
     pub on_app_sentinel: Option<Arc<AppSentinelFn>>,
     /// The document title changed.
     pub on_title: Option<Arc<TitleFn>>,
-    /// Finished download: `(app, label, file name or URL, success)`.
-    pub on_download: Option<Arc<DownloadFn>>,
 }
 
 /// The frozen `AppleWebKit`/`Safari` build token every modern Safari UA carries. Safari stopped
@@ -333,12 +330,9 @@ pub fn create_content_webview(
     let open_home = spec.home_url.to_string();
     let nav_app = window.app_handle().clone();
     let open_app = nav_app.clone();
-    let dl_app = nav_app.clone();
     let nav_label = label.clone();
     let open_label = label.clone();
-    let dl_label = label.clone();
-    let (nav_hooks, open_hooks, title_hooks, dl_hooks) =
-        (hooks.clone(), hooks.clone(), hooks.clone(), hooks.clone());
+    let (nav_hooks, open_hooks, title_hooks) = (hooks.clone(), hooks.clone(), hooks);
 
     // Born on `about:blank`; the page itself is navigated to once the webview exists (below).
     let blank = Url::parse("about:blank").expect("static URL");
@@ -415,17 +409,17 @@ pub fn create_content_webview(
         // `Content-Disposition: attachment` response as a navigation, which WebKit then abandons
         // mid-load — the tab tries to navigate, nothing saves, and the loading bar strands. A
         // displayable attachment is turned into a download by `web::attachment`. wry picks a
-        // de-duplicated path in `~/Downloads`; the shell only accepts it and reports the end.
-        .on_download(move |_webview, event| {
+        // de-duplicated path in `~/Downloads`; the shell accepts it and reports the end as a
+        // banner that surfaces this tab.
+        .on_download(move |webview, event| {
             if let DownloadEvent::Finished { url, path, success } = event {
                 let name = path
                     .as_deref()
                     .and_then(|p| p.file_name())
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| url.to_string());
-                if let Some(f) = &dl_hooks.on_download {
-                    f(&dl_app, &dl_label, &name, success);
-                }
+                let (title, body) = crate::banner::download_text(&name, success);
+                crate::banner::fire(title, &body, webview.window().label(), webview.label());
             }
             true
         });
