@@ -410,12 +410,12 @@ pub fn create_content_webview(
                 f(&webview, &title);
             }
         })
-        // Registering a handler at all is what makes WebKit treat attachments as downloads: without
-        // one, wry cancels every `download`-attribute/blob link and *allows* an unrenderable
+        // Registering a handler at all is what makes wry download anything: without one, it
+        // cancels every `download`-attribute/blob link and *allows* an unrenderable
         // `Content-Disposition: attachment` response as a navigation, which WebKit then abandons
-        // mid-load — the tab tries to navigate, nothing saves, and the loading bar strands. wry
-        // picks a de-duplicated path in `~/Downloads`; the shell only accepts it and reports the
-        // end.
+        // mid-load — the tab tries to navigate, nothing saves, and the loading bar strands. A
+        // displayable attachment is turned into a download by `web::attachment`. wry picks a
+        // de-duplicated path in `~/Downloads`; the shell only accepts it and reports the end.
         .on_download(move |_webview, event| {
             if let DownloadEvent::Finished { url, path, success } = event {
                 let name = path
@@ -439,7 +439,10 @@ pub fn create_content_webview(
     crate::compositing::record_hole(window.label(), hole);
     #[cfg(target_os = "macos")]
     {
-        let _ = webview.with_webview(|pw| super::insecure::ensure_patched(pw.inner()));
+        let _ = webview.with_webview(|pw| {
+            super::insecure::ensure_patched(pw.inner());
+            super::attachment::ensure_patched(pw.inner());
+        });
         let (app, insp_label) = (window.app_handle().clone(), label.clone());
         let _ = webview.with_webview(move |pw| {
             super::ipc_global::relax(pw.inner());
