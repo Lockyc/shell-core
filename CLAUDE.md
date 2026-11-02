@@ -55,8 +55,8 @@ Two rules span every module below:
   native `NSView` through its own `geometry.rs` — genuine divergence, left alone.
 - **`watch::watch_config`** (`runtime`) — config hot-reload, curator, lector + flotilla. warden keeps its own
   watcher: it parses inside and drives a main-thread reconcile, a different contract.
-- **`banner`** (`runtime`, macOS) — native notifications (`UNUserNotificationCenter`), every app
-  but lector; a click hands the app the banner's window, tab and `context`, and the app decides
+- **`banner`** (`runtime`, macOS) — native notifications (`UNUserNotificationCenter`), curator
+  and warden; a click hands the app the banner's window, tab and `context`, and the app decides
   which window to `raise` (warden raises a popped-out tab's own).
 - **`downloads`** (`runtime`) — every content webview's downloads in one app-wide list
   (`downloads::list` is the pure model) and the popup floating over the content that shows it
