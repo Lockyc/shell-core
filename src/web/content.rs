@@ -487,7 +487,6 @@ pub fn navigate_to(window: &Window, label: &str, url: &Url) -> tauri::Result<()>
 /// is going away and its teardown will drop the webviews, [`close_window_pages`]. A bare `close()`
 /// silently reintroduces the leak.
 pub fn close_content_webview(wv: &tauri::Webview) {
-    crate::downloads::with_list(|l| l.webview_gone(wv.label()));
     close_page(wv);
     let _ = wv.close();
 }
@@ -524,7 +523,10 @@ pub fn wire_close_pages(window: &Window) {
 /// above rather than aborting on an unrecognised selector. There is no public equivalent — every
 /// supported route to stopping a page is a navigation, and a navigation is exactly what the close
 /// cancels.
+///
+/// Also ends the webview's in-progress downloads (`downloads`), so every close path shares it.
 fn close_page(wv: &tauri::Webview) {
+    crate::downloads::with_list(|l| l.webview_gone(wv.label()));
     #[cfg(target_os = "macos")]
     {
         let _ = wv.with_webview(|pw| {
