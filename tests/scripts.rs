@@ -334,6 +334,14 @@ fn core_patch_pin_writes_every_manifest_of_a_core() {
 /// install-app.sh stamps the bundle with the commit it was built from — `lockstep.sh release`
 /// reads `com.lockyc.build-commit` to decide whether a release may replace this build.
 fn install_and_read_stamp(f: &Fixture) -> String {
+    // No signing identity on the stubbed keychain: the ad-hoc path.
+    write_exec(&f.stub_bin.join("security"), "#!/bin/sh\nexit 0\n");
+    install(f);
+    read_stamp(&f.root.join("Applications/demo.app"))
+}
+
+/// Installs a fake bundle with osascript/pkill stubbed; returns stdout.
+fn install(f: &Fixture) -> String {
     let src = f.root.join("src/demo.app");
     std::fs::create_dir_all(src.join("Contents")).unwrap();
     // install-app.sh quits the running app first; never let a test reach the real osascript.
@@ -350,9 +358,13 @@ fn install_and_read_stamp(f: &Fixture) -> String {
         "install-app.sh: {}",
         text(&out.stderr)
     );
+    text(&out.stdout)
+}
+
+fn read_stamp(dest: &std::path::Path) -> String {
     let x = Command::new("xattr")
         .args(["-p", "com.lockyc.build-commit"])
-        .arg(&dest)
+        .arg(dest)
         .output()
         .unwrap();
     assert!(
@@ -361,6 +373,32 @@ fn install_and_read_stamp(f: &Fixture) -> String {
         dest.display()
     );
     text(&x.stdout).trim().to_string()
+}
+
+/// With a Developer ID in the keychain, the installed bundle is re-signed with it (by hash), so
+/// its designated requirement — and with it TCC and keychain grants — survives a rebuild.
+#[test]
+fn install_signs_with_the_developer_id() {
+    let f = Fixture::new("install-sign");
+    write_exec(
+        &f.stub_bin.join("security"),
+        "#!/bin/sh\n\
+         echo '  1) AAAA \"Apple Development: Someone (X)\"'\n\
+         echo '  2) BBBB \"Developer ID Application: Someone (Y)\"'\n",
+    );
+    let log = f.root.join("codesign.log");
+    write_exec(
+        &f.stub_bin.join("codesign"),
+        &format!("#!/bin/sh\necho \"$@\" >> '{}'\n", log.display()),
+    );
+    let out = install(&f);
+    let dest = f.root.join("Applications/demo.app");
+    let args = std::fs::read_to_string(&log).expect("codesign not called");
+    assert!(
+        args.contains(&format!("--sign BBBB {}", dest.display())),
+        "codesign args: {args}"
+    );
+    assert!(out.contains("signed with Developer ID"), "stdout: {out}");
 }
 
 #[test]

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # install-app.sh <built-app> — place a freshly built ${APP_NAME}.app into /Applications (override
-# with APP_DEST), quitting any running copy first and stripping the quarantine xattr so an unsigned
-# local build isn't blocked by Gatekeeper, then stamping the build commit on it. Does NOT relaunch —
+# with APP_DEST), quitting any running copy first, stripping the quarantine xattr so an unsigned
+# local build isn't blocked by Gatekeeper, re-signing it with this Mac's Developer ID if there is one,
+# then stamping the build commit on it. Does NOT relaunch —
 # the caller decides.
 #
 # GENERIC — shared verbatim across every consuming app via shell-core; app-specific values come
@@ -41,6 +42,21 @@ rm -rf "$dest"
 mkdir -p "$(dirname "$dest")"
 cp -R "$src" "$dest"
 xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
+
+# Re-sign with this Mac's Developer ID when it has one. The build's linker ad-hoc signature has a
+# cdhash for its designated requirement, so every rebuild is a new app to TCC (folder grants) and to
+# keychain item ACLs — each install re-prompts for both. A certificate-backed signature's DR is
+# bundle id + team, stable across builds and identical to the release build's. No identity, or a
+# failed sign (locked keychain) → the ad-hoc build installs as before.
+identity=$(security find-identity -v -p codesigning 2>/dev/null |
+    awk '/"Developer ID Application: /{print $2; exit}')
+if [ -n "$identity" ]; then
+    if codesign --force --deep --sign "$identity" "$dest" 2>/dev/null; then
+        echo "install-app.sh: signed with Developer ID ($identity)"
+    else
+        echo "install-app.sh: Developer ID signing failed — installed ad-hoc, grants won't persist" >&2
+    fi
+fi
 
 # Stamp the commit this build came from ("-dirty" with uncommitted changes), so a release cut later
 # can tell whether it is newer than this build before replacing it. An xattr, not an Info.plist
