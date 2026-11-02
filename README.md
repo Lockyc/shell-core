@@ -63,7 +63,7 @@ It has two parts, split by Cargo feature:
     hosts (`web::insecure`, macOS), and the content-webview builder (`web::content`), which takes
     a spec plus app hooks (`intercept`, `on_app_sentinel`, `on_title`). Every content webview
     saves `attachment` responses to `~/Downloads` (`web::attachment`), records each
-    download in an app-wide list (`downloads`), keeps an opened Web Inspector in its own window, off the sidebar
+    download in an app-wide list shown in a popup over the content (`downloads`), keeps an opened Web Inspector in its own window, off the sidebar
     (`web::inspector`), and leaves the page free to define its own global `ipc`
     (`web::ipc_global`), which Google Sheets needs to load.
 

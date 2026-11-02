@@ -220,6 +220,7 @@ mod runtime {
         // the rest of the identical runtime setup.
         let builder = crate::home::register_protocol(builder);
         let builder = crate::windows::form::register_protocol(builder);
+        let builder = crate::downloads::popup::register_protocol(builder);
         crate::detach::register_detach_protocol(builder)
     }
 }

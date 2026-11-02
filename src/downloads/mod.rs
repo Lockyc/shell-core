@@ -1,5 +1,5 @@
-//! The app-wide download list: every content webview's downloads in one newest-first list, the
-//! model behind the downloads popup. [`list`] is pure (no Tauri), so the list's rules are unit
+//! The app-wide download list: every content webview's downloads in one newest-first list, shown
+//! by the downloads popup ([`popup`]). [`list`] is pure (no Tauri), so the list's rules are unit
 //! tested without a webview.
 //!
 //! The one list lives here, behind a process-wide lock; [`with_list`] is the only way to change it
@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tauri::AppHandle;
 
 pub mod list;
+pub mod popup;
 
 pub use list::{DownloadList, DownloadRow, DownloadsState, RowStatus};
 
@@ -43,13 +44,14 @@ fn with_list_quiet<T>(f: impl FnOnce(&mut DownloadList) -> T) -> T {
     f(guard.get_or_insert_with(DownloadList::new))
 }
 
-/// Mutates the list, then reports the new state to the [`init`] hook.
+/// Mutates the list, then pushes the rows to an open popup and reports the new state to the
+/// [`init`] hook, both after the lock is released.
 pub(crate) fn with_list<T>(f: impl FnOnce(&mut DownloadList) -> T) -> T {
     let (out, state) = with_list_quiet(|l| {
         let out = f(l);
         (out, l.state())
     });
-    // The popup's row push goes here, after the lock is released and alongside the state hook.
+    popup::list_changed();
     let hook = on_change_slot().lock().unwrap().clone();
     if let Some(hook) = hook {
         hook(state);

@@ -307,7 +307,8 @@ fn apply_route(app: &AppHandle, label: &str, route: escape::LinkRoute) {
 
 /// Create a content webview for `spec` in `window`. Its login store is keyed on `spec.session`
 /// (tabs sharing a seed share a login). Every tab gets the full shared shim set, followed by the
-/// spec's `extra_init`.
+/// spec's `extra_init`. The window's downloads popup closes first: a webview added after it would
+/// stack above it.
 ///
 /// Returns the webview so the app can attach its own watchers.
 pub fn create_content_webview(
@@ -315,6 +316,7 @@ pub fn create_content_webview(
     spec: &ContentSpec,
     hooks: ContentHooks,
 ) -> tauri::Result<tauri::Webview> {
+    crate::downloads::popup::close(window);
     // Per-webview secret keying the sentinel handlers; substituted into the shims that emit
     // sentinel navigations so only our own injected code can trigger them.
     let nonce = random_nonce();
@@ -495,10 +497,15 @@ pub fn close_content_webview(wv: &tauri::Webview) {
 /// than a tab (user close, ⌘⇧W, a reload dropping the window, a detached window redocking). The
 /// window's teardown drops those webviews, which leaks them still running exactly as above — so
 /// their pages are ended first. The window's own main webview is its chrome (its label *is* the
-/// window's), which the window takes with it; only the content children need this.
+/// window's), which the window takes with it; only the content children need this. The window's
+/// downloads popup is closed outright (`downloads::popup::close`).
 pub fn close_window_pages(window: &Window) {
+    crate::downloads::popup::close(window);
     for (label, wv) in window.app_handle().webviews() {
-        if label != window.label() && wv.window().label() == window.label() {
+        if label != window.label()
+            && !crate::downloads::popup::is_popup_label(&label)
+            && wv.window().label() == window.label()
+        {
             close_page(&wv);
         }
     }

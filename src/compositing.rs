@@ -66,11 +66,12 @@ pub fn initial_hole(win_w: f64, win_h: f64) -> HoleRect {
 /// Position every content webview to fill the reported hole. The chrome is the window's main
 /// webview (auto-sized to the window as its content view; its label IS the window label), so it's
 /// skipped — only the `add_child` content webviews are placed. All loaded tabs stack in the same
-/// hole; the app raises the active one, `load_on_open` tabs sit live behind it.
+/// hole; the app raises the active one, `load_on_open` tabs sit live behind it. The downloads
+/// popup, also a child, keeps its own place.
 pub fn layout_webviews<R: Runtime>(window: &Window<R>, hole: HoleRect) {
     record_hole(window.label(), hole);
     for wv in window.webviews() {
-        if wv.label() == window.label() {
+        if wv.label() == window.label() || crate::downloads::popup::is_popup_label(wv.label()) {
             continue;
         }
         let _ = wv.set_position(LogicalPosition::new(hole.x, hole.y));

@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Downloads</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e1e; color: #ddd;
+        font: 12px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; -webkit-user-select: none;
+        cursor: default; }
+      body { display: flex; flex-direction: column; box-sizing: border-box;
+        border: 1px solid rgba(255,255,255,0.12); }
+      #list { flex: 1 1 auto; overflow-y: auto; padding: 4px; }
+      .row { display: flex; align-items: center; gap: 4px; height: 44px; box-sizing: border-box; }
+      .open { flex: 1 1 auto; min-width: 0; height: 40px; padding: 0 8px; border-radius: 6px;
+        display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+      .open:not(.off):hover { background: rgba(255,255,255,0.1); }
+      .name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .status { font-size: 11px; color: #999; display: flex; align-items: center; gap: 6px; }
+      .status.failed { color: #ff7b72; }
+      .status.missing { color: #777; }
+      .spin { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.25);
+        border-top-color: #ddd; animation: spin .8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .empty { height: 44px; display: flex; align-items: center; padding: 0 8px; color: #999; }
+      button { background: none; border: 0; color: inherit; font: inherit; padding: 4px 8px;
+        border-radius: 6px; white-space: nowrap; }
+      button:not(.off):hover { background: rgba(255,255,255,0.1); }
+      .off { opacity: .45; }
+      footer { flex: 0 0 auto; height: 41px; box-sizing: border-box; border-top: 1px solid rgba(255,255,255,0.1);
+        display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="list"></div>
+    <footer><button id="clear" type="button">Clear</button></footer>
+    <script>
+      const { listen } = window.__TAURI__.event;
+      const list = document.getElementById('list');
+      const clear = document.getElementById('clear');
+
+      // Why a row's file can't be opened or shown, by status; a done row has none.
+      const WHY = {
+        downloading: 'Still downloading',
+        failed: 'The download failed',
+        missing: 'The file was moved or deleted',
+      };
+
+      function el(tag, props) { return Object.assign(document.createElement(tag), props || {}); }
+      function send(path) { fetch(path).catch(() => {}); }
+
+      function size(n) {
+        if (n < 1000) return n + ' B';
+        const units = ['KB', 'MB', 'GB', 'TB'];
+        let v = n, i = -1;
+        do { v /= 1000; i++; } while (v >= 1000 && i < units.length - 1);
+        return (v < 10 ? v.toFixed(1) : Math.round(v)) + ' ' + units[i];
+      }
+
+      // An unavailable control stays visible and explains itself: `.off` plus its reason as the
+      // tooltip (a `disabled` button shows no tooltip).
+      function control(node, why, act) {
+        node.classList.toggle('off', !!why);
+        node.title = why || '';
+        node.onclick = why ? null : act;
+      }
+
+      function statusLine(r) {
+        const s = el('div', { className: 'status ' + r.status });
+        if (r.status === 'downloading') s.append(el('span', { className: 'spin' }), 'Downloading…');
+        else if (r.status === 'failed') s.textContent = 'Failed';
+        else if (r.status === 'missing') s.textContent = 'Moved or deleted';
+        else s.textContent = r.size == null ? '' : size(r.size);
+        return s;
+      }
+
+      function render(rows) {
+        list.replaceChildren();
+        if (!rows.length) list.append(el('div', { className: 'empty', textContent: 'No downloads' }));
+        for (const r of rows) {
+          const why = WHY[r.status];
+          const open = el('div', { className: 'open' });
+          open.append(el('div', { className: 'name', textContent: r.name, title: r.name }), statusLine(r));
+          control(open, why, () => send('/open?id=' + r.id));
+          const reveal = el('button', { type: 'button', textContent: 'Show in Finder' });
+          control(reveal, why, () => send('/reveal?id=' + r.id));
+          const row = el('div', { className: 'row' });
+          row.append(open, reveal);
+          list.append(row);
+        }
+        const clearable = rows.some((r) => r.status !== 'downloading');
+        control(clear, clearable ? '' : 'Nothing to clear', () => send('/clear'));
+      }
+
+      render([]);
+      window.addEventListener('blur', () => send('/close'));
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') send('/close'); });
+      listen('shell-downloads:rows', (e) => render(e.payload)).then(() => send('/ready'));
+    </script>
+  </body>
+</html>
