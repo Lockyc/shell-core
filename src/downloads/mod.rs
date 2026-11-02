@@ -47,16 +47,28 @@ fn with_list_quiet<T>(f: impl FnOnce(&mut DownloadList) -> T) -> T {
 /// Mutates the list, then pushes the rows to an open popup and reports the new state to the
 /// [`init`] hook, both after the lock is released.
 pub(crate) fn with_list<T>(f: impl FnOnce(&mut DownloadList) -> T) -> T {
-    let (out, state) = with_list_quiet(|l| {
-        let out = f(l);
-        (out, l.state())
-    });
+    let popup_open = popup::is_open();
+    let (out, state) = with_list_quiet(|l| change(l, f, popup_open));
     popup::list_changed();
     let hook = on_change_slot().lock().unwrap().clone();
     if let Some(hook) = hook {
         hook(state);
     }
     out
+}
+
+/// Runs `f` on the list and returns its result with the state after it. With the popup open every
+/// row is on screen, so the change is marked seen and closing the popup shows no dot for it.
+fn change<T>(
+    l: &mut DownloadList,
+    f: impl FnOnce(&mut DownloadList) -> T,
+    popup_open: bool,
+) -> (T, DownloadsState) {
+    let out = f(l);
+    if popup_open {
+        l.mark_seen();
+    }
+    (out, l.state())
 }
 
 #[cfg(test)]
@@ -81,5 +93,32 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert!(got[0].active && got[0].unseen);
         assert_eq!(state(), got[0]);
+    }
+
+    #[test]
+    fn a_change_while_the_popup_is_open_is_seen() {
+        let mut l = DownloadList::new();
+        let (_, s) = change(
+            &mut l,
+            |l| l.requested("tab", "https://x/a.pdf", "/tmp/a.pdf".into()),
+            true,
+        );
+        assert!(s.active && !s.unseen, "started under the open popup");
+        let (_, s) = change(
+            &mut l,
+            |l| l.finished("tab", "https://x/a.pdf", false),
+            true,
+        );
+        assert!(
+            !s.unseen && !s.unseen_failed,
+            "finished under the open popup"
+        );
+
+        let (_, s) = change(
+            &mut l,
+            |l| l.requested("tab", "https://x/b.pdf", "/tmp/b.pdf".into()),
+            false,
+        );
+        assert!(s.unseen, "with the popup closed a change stays unseen");
     }
 }
