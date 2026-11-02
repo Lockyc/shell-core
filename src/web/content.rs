@@ -407,23 +407,21 @@ pub fn create_content_webview(
         // `Content-Disposition: attachment` response as a navigation, which WebKit then abandons
         // mid-load — the tab tries to navigate, nothing saves, and the loading bar strands. A
         // displayable attachment is turned into a download by `web::attachment`. wry picks a
-        // de-duplicated path in `~/Downloads`; the shell accepts it and reports the end as a
-        // banner that surfaces this tab.
+        // de-duplicated path in `~/Downloads`; the shell accepts it and records the download in
+        // the app-wide list (`downloads`), whose state the app shows.
         .on_download(move |webview, event| {
-            if let DownloadEvent::Finished { url, path, success } = event {
-                let name = path
-                    .as_deref()
-                    .and_then(|p| p.file_name())
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| url.to_string());
-                let (title, body) = crate::banner::download_text(&name, success);
-                crate::banner::fire(&crate::banner::Banner {
-                    title,
-                    body: &body,
-                    window: webview.window().label(),
-                    tab: webview.label(),
-                    context: None,
-                });
+            match event {
+                DownloadEvent::Requested { url, destination } => {
+                    crate::downloads::with_list(|l| {
+                        l.requested(webview.label(), url.as_str(), destination.clone())
+                    });
+                }
+                DownloadEvent::Finished { url, success, .. } => {
+                    crate::downloads::with_list(|l| {
+                        l.finished(webview.label(), url.as_str(), success)
+                    });
+                }
+                _ => {}
             }
             true
         });
@@ -489,6 +487,7 @@ pub fn navigate_to(window: &Window, label: &str, url: &Url) -> tauri::Result<()>
 /// is going away and its teardown will drop the webviews, [`close_window_pages`]. A bare `close()`
 /// silently reintroduces the leak.
 pub fn close_content_webview(wv: &tauri::Webview) {
+    crate::downloads::with_list(|l| l.webview_gone(wv.label()));
     close_page(wv);
     let _ = wv.close();
 }

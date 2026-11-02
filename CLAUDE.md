@@ -57,8 +57,9 @@ Two rules span every module below:
   watcher: it parses inside and drives a main-thread reconcile, a different contract.
 - **`banner`** (`runtime`, macOS) — native notifications (`UNUserNotificationCenter`), every app
   but lector; a click hands the app the banner's window, tab and `context`, and the app decides
-  which window to `raise` (warden raises a popped-out tab's own). Every content webview's finished
-  download is one.
+  which window to `raise` (warden raises a popped-out tab's own).
+- **`downloads`** (`runtime`) — every content webview's downloads in one app-wide list
+  (`downloads::list` is the pure model); `downloads::init` hands the app its state changes.
 - **`mouse_nav::install`** / **`progress_bar::install`** (`runtime`, macOS) — side-button navigation
   and the loading bar for content WKWebViews, curator + lector; flotilla takes `mouse_nav` (warden
   hosts native terminals).

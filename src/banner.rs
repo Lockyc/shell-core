@@ -7,8 +7,7 @@
 //! the app is frontmost (the system otherwise drops them for the foreground app, which is exactly
 //! when a hidden tab raises one). Each [`Banner`] carries the window and tab that raised it, plus
 //! an optional app `context`; a click hands them back to the app's `on_click` as a [`Click`],
-//! which raises a window ([`raise`]) and selects the tab. Every content webview's finished
-//! downloads are reported here (`web::content`).
+//! which raises a window ([`raise`]) and selects the tab.
 
 use tauri::{AppHandle, Manager};
 
@@ -44,15 +43,6 @@ pub fn raise(app: &AppHandle, label: &str) {
     if let Some(win) = app.get_window(label) {
         let _ = win.unminimize();
         let _ = win.set_focus();
-    }
-}
-
-/// The banner reporting a finished download of `name`: `(title, body)`.
-pub fn download_text(name: &str, success: bool) -> (&'static str, String) {
-    if success {
-        ("Downloaded", format!("{name} — saved to Downloads"))
-    } else {
-        ("Download failed", name.to_string())
     }
 }
 
@@ -267,21 +257,4 @@ pub fn trace(msg: &str) {
     imp::trace(msg);
     #[cfg(not(target_os = "macos"))]
     let _ = msg;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::download_text;
-
-    #[test]
-    fn a_download_banner_names_the_file() {
-        assert_eq!(
-            download_text("Bulletin.pdf", true),
-            ("Downloaded", "Bulletin.pdf — saved to Downloads".into())
-        );
-        assert_eq!(
-            download_text("Bulletin.pdf", false),
-            ("Download failed", "Bulletin.pdf".into())
-        );
-    }
 }
