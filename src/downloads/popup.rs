@@ -153,6 +153,11 @@ fn push<R: tauri::Runtime>(webview: &Webview<R>, anchor: HoleRect, rows: Vec<sup
         .emit_to(webview.label(), ROWS_EVENT, rows);
 }
 
+/// Whether any window's popup is open.
+pub(super) fn is_open() -> bool {
+    OPEN.lock().unwrap().is_some()
+}
+
 /// Pushes the rows to the open popup, if any. `super::with_list` calls it after every change.
 pub(super) fn list_changed() {
     let open = OPEN
@@ -251,22 +256,25 @@ fn close_any() {
     }
 }
 
-/// Takes the open popup out of [`OPEN`] when `pick` accepts it, recording its close for
-/// [`REOPEN_GUARD`].
+/// Takes the open popup out of [`OPEN`] when `pick` accepts it.
 fn take_open(pick: impl Fn(&Open) -> bool) -> Option<Webview> {
     let mut open = OPEN.lock().unwrap();
     if !open.as_ref().is_some_and(&pick) {
         return None;
     }
-    let webview = open.take()?.webview;
-    *LAST_CLOSED.lock().unwrap() = Some((webview.window().label().to_string(), Instant::now()));
-    Some(webview)
+    Some(open.take()?.webview)
 }
 
 /// Closes the popup `label` from inside its own request: the close is posted to the main thread
 /// from another thread, so the webview is never closed while its scheme request is still running.
-fn close_from_page(label: &str) {
+/// A close the page asked for (blur, Escape) is recorded for [`REOPEN_GUARD`]: only that close can
+/// be the downloads button's own mousedown, so an app's close leaves the next click alone.
+fn close_from_page(label: &str, action: PopupAction) {
     if let Some(webview) = take_open(|o| o.webview.label() == label) {
+        if action == PopupAction::Close {
+            *LAST_CLOSED.lock().unwrap() =
+                Some((webview.window().label().to_string(), Instant::now()));
+        }
         let app = webview.app_handle().clone();
         std::thread::spawn(move || {
             let _ = app.run_on_main_thread(move || {
@@ -298,7 +306,7 @@ fn act(label: &str, action: PopupAction) {
         }
         PopupAction::Close => {}
     }
-    close_from_page(label);
+    close_from_page(label, action);
 }
 
 /// Registers [`POPUP_SCHEME`]: serves [`POPUP_HTML`], answers [`READY_PATH`] with the rows, and
