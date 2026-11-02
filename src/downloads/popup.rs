@@ -32,17 +32,17 @@ const READY_PATH: &str = "/ready";
 /// button's mousedown blurred the popup), so it does not reopen it.
 const REOPEN_GUARD: Duration = Duration::from_millis(400);
 
-/// The popup webview's label in window `window_label`.
+/// The popup's within-window name ([`crate::label`]); a tab's is `tab-<hash>`, never this.
+const POPUP_WITHIN: &str = "shell-downloads";
+
+/// The popup webview's label in window `window_label`: a child label, `{window}:shell-downloads`.
 fn popup_label(window_label: &str) -> String {
-    format!("{POPUP_SCHEME}:{window_label}")
+    crate::label::child_label(window_label, POPUP_WITHIN)
 }
 
-/// Whether `label` names a downloads popup.
+/// Whether `label` names a downloads popup: a child label whose within-window part is the popup's.
 pub fn is_popup_label(label: &str) -> bool {
-    label
-        .strip_prefix(POPUP_SCHEME)
-        .and_then(|rest| rest.strip_prefix(':'))
-        .is_some_and(|window| !window.is_empty())
+    crate::label::window_of(label).is_some() && crate::label::within_of(label) == POPUP_WITHIN
 }
 
 /// The popup's width, logical px.
@@ -133,7 +133,7 @@ fn rows() -> Vec<super::DownloadRow> {
 }
 
 /// `window`'s inner size in logical px.
-fn logical_size(window: &Window) -> (f64, f64) {
+fn logical_size<R: tauri::Runtime>(window: &Window<R>) -> (f64, f64) {
     let scale = window.scale_factor().unwrap_or(1.0);
     window
         .inner_size()
@@ -143,7 +143,7 @@ fn logical_size(window: &Window) -> (f64, f64) {
 }
 
 /// Sends `rows` to the popup and fits it to their number.
-fn push(webview: &Webview, anchor: HoleRect, rows: Vec<super::DownloadRow>) {
+fn push<R: tauri::Runtime>(webview: &Webview<R>, anchor: HoleRect, rows: Vec<super::DownloadRow>) {
     let window = webview.window();
     let r = placement(anchor, logical_size(&window), rows.len());
     let _ = webview.set_position(LogicalPosition::new(r.x, r.y));
@@ -163,6 +163,33 @@ pub(super) fn list_changed() {
     if let Some((webview, anchor)) = open {
         push(&webview, anchor, rows());
     }
+}
+
+/// Answers the page's [`READY_PATH`]: pushes the rows to popup `webview` itself, so they reach it
+/// even when the page loads before [`toggle`] has recorded it in [`OPEN`]. The anchor is the
+/// recorded one, else the one the webview's current top-left was placed under.
+fn ready<R: tauri::Runtime>(webview: &Webview<R>) {
+    let recorded = OPEN
+        .lock()
+        .unwrap()
+        .as_ref()
+        .filter(|o| o.webview.label() == webview.label())
+        .map(|o| o.anchor);
+    let anchor = recorded.unwrap_or_else(|| {
+        let scale = webview.window().scale_factor().unwrap_or(1.0);
+        let (x, y) = webview
+            .position()
+            .map(|p| p.to_logical::<f64>(scale))
+            .map(|p| (p.x, p.y))
+            .unwrap_or((0.0, 0.0));
+        HoleRect {
+            x,
+            y: y - GAP,
+            width: 0.0,
+            height: 0.0,
+        }
+    });
+    push(webview, anchor, rows());
 }
 
 /// Opens `window`'s popup under `anchor` (the downloads button's rect, window logical px), marking
@@ -293,7 +320,9 @@ pub(crate) fn register_protocol<R: tauri::Runtime>(
             return respond(403, "text/plain", b"not the downloads popup".to_vec());
         }
         if req.uri().path() == READY_PATH {
-            list_changed();
+            if let Some(webview) = ctx.app_handle().get_webview(label) {
+                ready(&webview);
+            }
             return respond(200, "text/plain", b"ok".to_vec());
         }
         if let Some(action) = parse_action(req.uri()) {
@@ -413,10 +442,20 @@ mod tests {
     #[test]
     fn is_popup_label_matches_only_popups() {
         assert!(is_popup_label(&popup_label("main")));
-        assert!(is_popup_label("shell-downloads:w-2"));
+        assert!(is_popup_label(&popup_label("a:b")));
         assert!(!is_popup_label("main"));
         assert!(!is_popup_label("main:tab-1"));
+        // A window titled "shell downloads" is labelled `shell-downloads`: neither its chrome nor
+        // its tabs are popups.
         assert!(!is_popup_label("shell-downloads"));
-        assert!(!is_popup_label("x:shell-downloads:main"));
+        assert!(!is_popup_label("shell-downloads:tab-00ff"));
+        assert!(!is_popup_label("shell-downloads:main"));
+    }
+
+    #[test]
+    fn popup_label_is_a_child_label_of_its_window() {
+        for window in ["main", "a:b", "shell-downloads"] {
+            assert_eq!(crate::label::window_of(&popup_label(window)), Some(window));
+        }
     }
 }
