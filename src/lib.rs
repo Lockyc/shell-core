@@ -114,6 +114,10 @@ pub mod watch;
 #[cfg(feature = "runtime")]
 pub mod banner;
 
+/// The app-wide download list behind the downloads popup (pure model).
+#[cfg(feature = "runtime")]
+pub mod downloads;
+
 /// App-agnostic content-webview layer: link routing, login-store identity, allowlisted
 /// self-signed TLS, the content-webview builder.
 #[cfg(feature = "runtime")]
