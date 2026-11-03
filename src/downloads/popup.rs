@@ -61,13 +61,15 @@ const FOOTER_H: f64 = 41.0;
 const MAX_ROWS: usize = 10;
 
 /// The popup's rect in window logical px for `rows` rows under `anchor` (the downloads button's
-/// rect): below it with the left edges aligned, kept `MARGIN` inside the window. Up to
-/// [`MAX_ROWS`] rows show (an empty list shows one line); a window too short cuts it, and the page
-/// scrolls.
+/// rect): below it with the right edges aligned, so it opens leftward over the sidebar, kept
+/// `MARGIN` inside the window. Up to [`MAX_ROWS`] rows show (an empty list shows one line); a
+/// window too short cuts it, and the page scrolls.
 pub(crate) fn placement(anchor: HoleRect, window: (f64, f64), rows: usize) -> HoleRect {
     let (win_w, win_h) = window;
     let width = WIDTH.min(win_w - 2.0 * MARGIN).max(0.0);
-    let x = anchor.x.min(win_w - MARGIN - width).max(MARGIN);
+    let x = (anchor.x + anchor.width - width)
+        .min(win_w - MARGIN - width)
+        .max(MARGIN);
     let y = anchor.y + anchor.height + GAP;
     let wanted = rows.clamp(1, MAX_ROWS) as f64 * ROW_H + LIST_PAD + FOOTER_H;
     let height = wanted.min(win_h - MARGIN - y).max(0.0);
@@ -187,10 +189,15 @@ fn ready<R: tauri::Runtime>(webview: &Webview<R>) {
             .map(|p| p.to_logical::<f64>(scale))
             .map(|p| (p.x, p.y))
             .unwrap_or((0.0, 0.0));
+        let width = webview
+            .size()
+            .map(|s| s.to_logical::<f64>(scale).width)
+            .unwrap_or(0.0);
+        // An anchor sharing the popup's right edge, so `placement` puts it back where it is.
         HoleRect {
             x,
             y: y - GAP,
-            width: 0.0,
+            width,
             height: 0.0,
         }
     });
@@ -361,17 +368,24 @@ mod tests {
     }
 
     #[test]
-    fn placement_sits_below_anchor_left_aligned() {
-        let p = placement(rect(100.0, 20.0, 24.0, 24.0), WIN, 2);
-        assert_eq!(p.x, 100.0);
+    fn placement_sits_below_anchor_right_aligned() {
+        let p = placement(rect(500.0, 20.0, 24.0, 24.0), WIN, 2);
+        assert_eq!(p.x + p.width, 524.0, "right edges aligned");
         assert!(p.y >= 44.0, "below the anchor, got {}", p.y);
         assert_eq!(p.width, WIDTH);
         assert_eq!(p.height, 2.0 * ROW_H + LIST_PAD + FOOTER_H);
     }
 
     #[test]
+    fn placement_clamps_left_edge() {
+        let p = placement(rect(200.0, 20.0, 24.0, 24.0), WIN, 1);
+        assert_eq!(p.width, WIDTH);
+        assert_eq!(p.x, MARGIN);
+    }
+
+    #[test]
     fn placement_clamps_right_edge() {
-        let p = placement(rect(700.0, 20.0, 24.0, 24.0), WIN, 1);
+        let p = placement(rect(790.0, 20.0, 24.0, 24.0), WIN, 1);
         assert_eq!(p.width, WIDTH);
         assert!(p.x + WIDTH <= 800.0 - MARGIN, "x = {}", p.x);
         assert!(p.x >= MARGIN);
