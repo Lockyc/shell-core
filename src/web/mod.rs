@@ -19,3 +19,16 @@ pub mod ipc_global;
 #[cfg(target_os = "macos")]
 pub mod pointer;
 pub mod session;
+
+pub use content::desktop_ua;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn desktop_ua_is_public_at_web() {
+        let ua = super::desktop_ua();
+        assert!(ua.contains("AppleWebKit/605.1.15"), "{ua}");
+        assert!(ua.contains("Version/"), "{ua}");
+        assert!(ua.ends_with(" Safari/605.1.15"), "{ua}");
+    }
+}

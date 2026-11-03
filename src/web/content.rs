@@ -85,7 +85,9 @@ const SAFARI_WEBKIT_TOKEN: &str = "605.1.15";
 /// so bump it when you notice, but the normal path never reads it.
 const SAFARI_VERSION_FALLBACK: &str = "27.0";
 
-/// Desktop UA for content webviews, derived once from the Safari installed on this machine.
+/// Desktop UA for content webviews, and for any app webview hosting a Google service outside
+/// [`create_content_webview`] (re-exported as `web::desktop_ua`). It is derived once from the
+/// Safari installed on this machine.
 ///
 /// WKWebView's native UA carries no `Version/… Safari/…` token, which Google Workspace (and
 /// others) read as an unsupported browser — hence a spoof. It presents as **Safari, not Chrome**:
@@ -93,7 +95,7 @@ const SAFARI_VERSION_FALLBACK: &str = "27.0";
 /// run (a Chrome UA invites Chrome-only paths that break here), and — the reason this is derived
 /// rather than pinned — the version tracks macOS updates instead of decaying into that same
 /// unsupported-browser banner a couple of years after someone last hard-coded it.
-fn desktop_ua() -> &'static str {
+pub fn desktop_ua() -> &'static str {
     static UA: OnceLock<String> = OnceLock::new();
     UA.get_or_init(|| {
         let version =

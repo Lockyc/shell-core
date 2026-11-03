@@ -59,7 +59,8 @@ It has two parts, split by Cargo feature:
   - `banner` posts native macOS notifications; clicking one hands the app the window and tab that
     raised it. Used by curator and warden.
   - `web` is the content-webview layer: link routing and escape sentinels (`web::escape`), the
-    WebKit login-store id for a session seed (`web::session`), self-signed TLS for allowlisted
+    WebKit login-store id for a session seed (`web::session`), the Safari UA Google services
+    need (`web::desktop_ua`), self-signed TLS for allowlisted
     hosts (`web::insecure`, macOS), and the content-webview builder (`web::content`), which takes
     a spec plus app hooks (`intercept`, `on_app_sentinel`, `on_title`). Every content webview
     saves `attachment` responses to `~/Downloads` (`web::attachment`), records each
