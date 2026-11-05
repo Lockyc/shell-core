@@ -36,7 +36,8 @@ It has two parts, split by Cargo feature:
     the Config submenu (Edit Config / Reveal in Finder), the Window submenu (a checked per-window
     selector) and the Edit submenu, with constants for the shortcuts every app shares (⌘W closes a
     tab, ⌘⇧W the window). `menu::build_tab_menu()` builds the whole **Tab** submenu — Previous/Next
-    Tab, the Cycle Tabs with ⌘1/⌘2 toggle, Close / Pop Out / Find in Sidebar, the app's own item
+    Tab, the Cycle Tabs with ⌘1/⌘2 toggle, Close / Pop Out / Find in Sidebar, Toggle Sidebar (⌃⌘S,
+    opt-in through `SpineConfig::toggle_sidebar`), the app's own item
     groups, Tab 1–9 — and `menu::route()` decides which window a menu command acts on, including
     from a popped-out tab's window. The app places the submenus; nothing here sets the menu.
   - `home::{home_state, show_home, close_home}` is the **home surface**: the window an app shows
