@@ -14,6 +14,7 @@ pub mod ids {
     pub const CLOSE_TAB: &str = "shell:close_tab";
     pub const POP_OUT_TAB: &str = "shell:pop_out_tab";
     pub const FIND_IN_SIDEBAR: &str = "shell:find_in_sidebar";
+    pub const TOGGLE_SIDEBAR: &str = "shell:toggle_sidebar";
     pub const CLOSE_WINDOW: &str = "shell:close_window";
     pub const NEW_WINDOW: &str = "shell:new_window";
     pub const OPEN_WINDOW_PREFIX: &str = "shell:open_window:";
@@ -55,6 +56,9 @@ pub const ACCEL_POP_OUT_TAB: &str = "Shift+Cmd+KeyO";
 /// find-in-terminal from warden's.
 pub const ACCEL_FIND_IN_SIDEBAR: &str = "Shift+Cmd+KeyF";
 
+/// Toggle Sidebar — ⌃⌘S, macOS's own Show/Hide Sidebar chord (Finder, Mail).
+pub const ACCEL_TOGGLE_SIDEBAR: &str = "Ctrl+Cmd+KeyS";
+
 /// The family's tab-cycling accelerators — ⌘⇧[ / ⌘⇧] , the browser convention. Constants for the
 /// same reason as the close accelerators: one convention, one place, no per-app copy to drift.
 pub const ACCEL_TAB_PREV: &str = "Shift+Cmd+BracketLeft";
@@ -77,6 +81,9 @@ pub struct WindowEntry {
 pub struct SpineConfig<'a> {
     pub app_name: &'a str,
     pub windows: &'a [WindowEntry],
+    /// Whether the Tab menu offers Toggle Sidebar: true for an app whose chrome mounts with
+    /// chrome-core's `hole`, so the item never appears where it would do nothing.
+    pub toggle_sidebar: bool,
 }
 
 fn open_window_id(window_id: &str) -> String {
@@ -190,6 +197,7 @@ enum Slot {
     CloseTab,
     PopOutTab,
     FindInSidebar,
+    ToggleSidebar,
     /// The app's group at this index.
     Group(usize),
     /// Every `jump_spec` item.
@@ -197,8 +205,8 @@ enum Slot {
 }
 
 /// The Tab submenu's order: navigation and the toggle, the spine's tab items, each app group,
-/// then the jumps.
-fn tab_menu_spec(cycle_digits: bool, n_groups: usize) -> Vec<Slot> {
+/// then the jumps. Toggle Sidebar follows Find in Sidebar when the app offers it.
+fn tab_menu_spec(cycle_digits: bool, n_groups: usize, toggle_sidebar: bool) -> Vec<Slot> {
     let mut v: Vec<Slot> = (0..nav_spec(cycle_digits).len()).map(Slot::Nav).collect();
     v.extend([
         Slot::Toggle,
@@ -207,6 +215,9 @@ fn tab_menu_spec(cycle_digits: bool, n_groups: usize) -> Vec<Slot> {
         Slot::PopOutTab,
         Slot::FindInSidebar,
     ]);
+    if toggle_sidebar {
+        v.push(Slot::ToggleSidebar);
+    }
     for g in 0..n_groups {
         v.extend([Slot::Sep, Slot::Group(g)]);
     }
@@ -244,7 +255,8 @@ pub fn build_tab_menu<R: tauri::Runtime, M: tauri::Manager<R>>(
         .build(manager)?;
 
     let mut menu = SubmenuBuilder::new(manager, "Tab");
-    for slot in tab_menu_spec(cycle_digits, app_groups.len()) {
+    let toggle_sidebar = spine.toggle_sidebar.as_ref();
+    for slot in tab_menu_spec(cycle_digits, app_groups.len(), toggle_sidebar.is_some()) {
         menu = match slot {
             Slot::Nav(i) => menu.item(&nav[i]),
             Slot::Toggle => menu.item(&toggle),
@@ -252,6 +264,10 @@ pub fn build_tab_menu<R: tauri::Runtime, M: tauri::Manager<R>>(
             Slot::CloseTab => menu.item(&spine.close_tab),
             Slot::PopOutTab => menu.item(&spine.pop_out_tab),
             Slot::FindInSidebar => menu.item(&spine.find_in_sidebar),
+            Slot::ToggleSidebar => match toggle_sidebar {
+                Some(item) => menu.item(item),
+                None => menu,
+            },
             Slot::Group(g) => menu.items(app_groups[g]),
             Slot::Jumps => jumps.iter().fold(menu, |m, j| m.item(j)),
         };
@@ -291,6 +307,7 @@ pub enum SpineAction {
     DockPoppedOut,
     PopOutTab,
     FindInSidebar,
+    ToggleSidebar,
     CheckUpdates,
     CloseWindow,
 }
@@ -323,6 +340,7 @@ pub fn route(
         ids::CLOSE_TAB => SpineAction::CloseTab,
         ids::POP_OUT_TAB => SpineAction::PopOutTab,
         ids::FIND_IN_SIDEBAR => SpineAction::FindInSidebar,
+        ids::TOGGLE_SIDEBAR => SpineAction::ToggleSidebar,
         ids::CHECK_UPDATES => SpineAction::CheckUpdates,
         ids::CLOSE_WINDOW => SpineAction::CloseWindow,
         _ => SpineAction::Nav(tab_nav_action(id)?),
@@ -359,8 +377,8 @@ use tauri::menu::{
     SubmenuBuilder,
 };
 
-/// What `build_spine` hands back: the shared submenus, plus the Close Tab, Pop Out Tab and Find in
-/// Sidebar items [`build_tab_menu`] places (an app may also reuse one, as flotilla's Group menu
+/// What `build_spine` hands back: the shared submenus, plus the Close Tab, Pop Out Tab, Find in
+/// Sidebar and (opted in) Toggle Sidebar items [`build_tab_menu`] places (an app may also reuse one, as flotilla's Group menu
 /// retitles Close Tab).
 pub struct Spine<R: tauri::Runtime> {
     /// App, Config, Window — in that order.
@@ -371,6 +389,8 @@ pub struct Spine<R: tauri::Runtime> {
     pub close_tab: MenuItem<R>,
     pub pop_out_tab: MenuItem<R>,
     pub find_in_sidebar: MenuItem<R>,
+    /// Built only when [`SpineConfig::toggle_sidebar`] asks for it.
+    pub toggle_sidebar: Option<MenuItem<R>>,
 }
 
 /// Build the App, Config, Window and Edit submenus plus the tab items `Spine` names. Returns them
@@ -433,6 +453,17 @@ pub fn build_spine<R: tauri::Runtime, M: tauri::Manager<R>>(
         .accelerator(ACCEL_FIND_IN_SIDEBAR)
         .build(manager)?;
 
+    // Forwarded by the app to its sidebar's `toggleSidebar()`.
+    let toggle_sidebar = if cfg.toggle_sidebar {
+        Some(
+            MenuItemBuilder::with_id(ids::TOGGLE_SIDEBAR, "Toggle Sidebar")
+                .accelerator(ACCEL_TOGGLE_SIDEBAR)
+                .build(manager)?,
+        )
+    } else {
+        None
+    };
+
     let close_window = MenuItemBuilder::with_id(ids::CLOSE_WINDOW, "Close Window")
         .accelerator(ACCEL_CLOSE_WINDOW)
         .build(manager)?;
@@ -484,6 +515,7 @@ pub fn build_spine<R: tauri::Runtime, M: tauri::Manager<R>>(
         close_tab,
         pop_out_tab,
         find_in_sidebar,
+        toggle_sidebar,
     })
 }
 
@@ -555,6 +587,34 @@ mod tests {
             ACCEL_TAB_NEXT,
         ];
         assert!(!others.contains(&ACCEL_FIND_IN_SIDEBAR));
+    }
+
+    #[test]
+    fn toggle_sidebar_accelerator_is_the_macos_standard_and_unclaimed() {
+        assert_eq!(ACCEL_TOGGLE_SIDEBAR, "Ctrl+Cmd+KeyS");
+        let others = [
+            ACCEL_CLOSE_TAB,
+            ACCEL_CLOSE_WINDOW,
+            ACCEL_NEW_WINDOW,
+            ACCEL_POP_OUT_TAB,
+            ACCEL_FIND_IN_SIDEBAR,
+            ACCEL_TAB_PREV,
+            ACCEL_TAB_NEXT,
+        ];
+        assert!(!others.contains(&ACCEL_TOGGLE_SIDEBAR));
+    }
+
+    #[test]
+    fn toggle_sidebar_routes_like_find_in_sidebar() {
+        assert_eq!(
+            route(ids::TOGGLE_SIDEBAR, "w1", origin).unwrap().action,
+            SpineAction::ToggleSidebar
+        );
+    }
+
+    #[test]
+    fn tab_menu_places_toggle_sidebar_only_when_opted_in() {
+        assert!(!tab_menu_spec(false, 1, false).contains(&Slot::ToggleSidebar));
     }
 
     #[test]
@@ -631,7 +691,7 @@ mod tests {
     fn tab_menu_order() {
         use Slot::*;
         assert_eq!(
-            tab_menu_spec(false, 0),
+            tab_menu_spec(false, 0, false),
             [
                 Nav(0),
                 Nav(1),
@@ -645,7 +705,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            tab_menu_spec(true, 2),
+            tab_menu_spec(true, 2, true),
             [
                 Nav(0),
                 Nav(1),
@@ -656,6 +716,7 @@ mod tests {
                 CloseTab,
                 PopOutTab,
                 FindInSidebar,
+                ToggleSidebar,
                 Sep,
                 Group(0),
                 Sep,
@@ -681,12 +742,13 @@ mod tests {
         assert_eq!(ids::TAB_DIGIT_CYCLE, "shell:tab_digit_cycle");
     }
 
-    const SPINE_IDS: [&str; 7] = [
+    const SPINE_IDS: [&str; 8] = [
         ids::TAB_NEXT,
         "shell:tab_jump:4",
         ids::CLOSE_TAB,
         ids::POP_OUT_TAB,
         ids::FIND_IN_SIDEBAR,
+        ids::TOGGLE_SIDEBAR,
         ids::CHECK_UPDATES,
         ids::CLOSE_WINDOW,
     ];
@@ -724,6 +786,7 @@ mod tests {
             ids::TAB_NEXT,
             "shell:tab_jump:4",
             ids::FIND_IN_SIDEBAR,
+            ids::TOGGLE_SIDEBAR,
             ids::CHECK_UPDATES,
         ] {
             let r = route(id, pop, origin).unwrap();
