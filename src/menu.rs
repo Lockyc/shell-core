@@ -326,7 +326,7 @@ pub struct Routed {
 /// Which window a spine command acts on, given the focused window's label.
 ///
 /// One rule for every app. A popped-out window has no sidebar, so ⌘W docks its tab, Pop Out Tab
-/// does nothing, and the sidebar commands (tab navigation, Find in Sidebar, Check for Updates) go
+/// and Toggle Sidebar do nothing, and the sidebar commands (tab navigation, Find in Sidebar, Check for Updates) go
 /// to the window it came from. The home surface has no tabs: only Close Window acts there. The
 /// app answers `origin_of(detached_label)` from its own bookkeeping (shell-core stores no origin
 /// state); `None` drops the command. Edit/Reveal Config and the toggle are not routed: they act on
@@ -361,7 +361,7 @@ pub fn route(
     if crate::detach::is_detached_label(focused) {
         return match action {
             SpineAction::CloseTab => here(SpineAction::DockPoppedOut),
-            SpineAction::PopOutTab => None,
+            SpineAction::PopOutTab | SpineAction::ToggleSidebar => None,
             action => Some(Routed {
                 action,
                 target: origin_of(focused)?,
@@ -605,11 +605,13 @@ mod tests {
     }
 
     #[test]
-    fn toggle_sidebar_routes_like_find_in_sidebar() {
+    fn toggle_sidebar_acts_on_a_main_window_and_not_from_a_pop_out() {
         assert_eq!(
             route(ids::TOGGLE_SIDEBAR, "w1", origin).unwrap().action,
             SpineAction::ToggleSidebar
         );
+        // A pop-out has no sidebar, and toggling its origin's would raise another window.
+        assert!(route(ids::TOGGLE_SIDEBAR, "shell-detach:x", origin).is_none());
     }
 
     #[test]
@@ -786,7 +788,6 @@ mod tests {
             ids::TAB_NEXT,
             "shell:tab_jump:4",
             ids::FIND_IN_SIDEBAR,
-            ids::TOGGLE_SIDEBAR,
             ids::CHECK_UPDATES,
         ] {
             let r = route(id, pop, origin).unwrap();
