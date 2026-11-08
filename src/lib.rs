@@ -111,7 +111,7 @@ pub mod compositing;
 pub mod watch;
 
 /// Native macOS banners that surface the tab that raised them when clicked.
-#[cfg(feature = "runtime")]
+#[cfg(feature = "banner")]
 pub mod banner;
 
 /// The app-wide download list behind the downloads popup (pure model).
@@ -142,8 +142,8 @@ pub(crate) fn spawn_reaped(cmd: &mut std::process::Command) {
 pub mod progress_bar;
 
 /// Per-window geometry persistence — size/position in AppKit points, clamped to the target
-/// monitor on restore. Wired by [`register_plugins`].
-#[cfg(feature = "runtime")]
+/// monitor on restore. Wired by [`register_plugins`], or alone through the `geometry` feature.
+#[cfg(feature = "geometry")]
 pub mod geometry;
 
 /// Emit a build stamp so the About box can confirm the installed app matches a given commit. Prints

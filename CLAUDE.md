@@ -49,14 +49,15 @@ Two rules span every module below:
     action:** delete the parameter and the plumbing above, drop the argument at each app's call
     site in that same lockstep re-pin, and remove the `skip_labels` mentions here and in the
     README.
-- **`geometry`** (`runtime`) — per-window size/position persistence, every app; the app hands it
-  only a resolved config path. `src/geometry.rs`.
+- **`geometry`** (`geometry`, in `runtime`) — per-window size/position persistence, every app; the
+  app hands it a resolved config path, or its own label → `Persist`
+  mapping (`plugin_keyed`). `src/geometry.rs`.
 - **`compositing`** (`runtime`) — the hole-punch webview layout, curator, lector + flotilla. warden composites a
   native `NSView` through its own `geometry.rs` — genuine divergence, left alone.
 - **`watch::watch_config`** (`runtime`) — config hot-reload, curator, lector + flotilla. warden keeps its own
   watcher: it parses inside and drives a main-thread reconcile, a different contract.
-- **`banner`** (`runtime`, macOS) — native notifications (`UNUserNotificationCenter`), curator
-  and warden; a click hands the app the banner's window, tab and `context`, and the app decides
+- **`banner`** (`banner`, in `runtime`; macOS) — native notifications (`UNUserNotificationCenter`),
+  curator and warden; a click hands the app the banner's window, tab and `context`, and the app decides
   which window to `raise` (warden raises a popped-out tab's own).
 - **`downloads`** (`runtime`) — every content webview's downloads in one app-wide list
   (`downloads::list` is the pure model) and the popup floating over the content that shows it
@@ -172,7 +173,8 @@ would drag in the whole tauri tree. So the default feature set is zero-dep and t
 behind `runtime`. **Load-bearing:** consumers must set `default-features = false` on the
 `[build-dependencies]` entry and `features = ["runtime"]` on the `[dependencies]` entry. Resolver 2
 resolves the two independently, so the build-dep compiles without tauri (verify: a default
-`cargo build` compiles only `shell-core`, no tauri crates).
+`cargo build` compiles only `shell-core`, no tauri crates). An app that takes only banners and
+window geometry depends on `default-features = false, features = ["banner", "geometry"]`.
 
 ## Versioning / releases
 

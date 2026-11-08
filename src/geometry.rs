@@ -166,14 +166,72 @@ pub(crate) fn fnv1a_64(bytes: &[u8]) -> u64 {
     hash
 }
 
-/// Plugin-managed state: the loaded cache plus the exclusions and filename it was built with.
+/// How a window's bounds persist, as an app's [`plugin_keyed`] mapping answers per label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Persist {
+    /// Size and position, stored under this key.
+    Bounds(String),
+    /// Size only, stored under this key: the window keeps the origin it was built at. Several
+    /// windows may share the key (one remembered size per kind of window).
+    SizeOnly(String),
+    /// Never stored or restored.
+    Skip,
+}
+
+/// An app's label → [`Persist`] mapping.
+type PersistFn = dyn Fn(&str) -> Persist + Send + Sync;
+
+/// Plugin-managed state: the loaded cache plus the mapping and filename it was built with.
 /// `aliases` maps a live window's label to the key its bounds save under when that differs (see
 /// [`persist_as`]); an entry lives exactly as long as that window.
 struct GeometryState {
     filename: String,
-    skip: HashSet<String>,
+    persist: Box<PersistFn>,
     cache: Mutex<HashMap<String, Rect>>,
     aliases: Mutex<HashMap<String, String>>,
+}
+
+/// How window `label` persists: never for a window shell-core owns ([`structurally_excluded`]),
+/// else the app's mapping, with a live alias from [`persist_as`] replacing the mapped key.
+fn resolve(persist: &PersistFn, aliases: &HashMap<String, String>, label: &str) -> Persist {
+    if structurally_excluded(label) {
+        return Persist::Skip;
+    }
+    let alias = |key: String| aliases.get(label).cloned().unwrap_or(key);
+    match persist(label) {
+        Persist::Bounds(key) => Persist::Bounds(alias(key)),
+        Persist::SizeOnly(key) => Persist::SizeOnly(alias(key)),
+        Persist::Skip => Persist::Skip,
+    }
+}
+
+/// The mapping [`plugin`] uses: every window's bounds under its own label, except `skip_labels`.
+fn skip_list(skip_labels: &[&str]) -> impl Fn(&str) -> Persist + Send + Sync + 'static {
+    let skip: HashSet<String> = skip_labels.iter().map(|s| s.to_string()).collect();
+    move |label: &str| {
+        if skip.contains(label) {
+            Persist::Skip
+        } else {
+            Persist::Bounds(label.to_string())
+        }
+    }
+}
+
+/// The rect a restore applies: `saved` clamped to `work` for [`Persist::Bounds`]; for
+/// [`Persist::SizeOnly`] (`size_only`), `saved`'s size at `current`'s origin, clamped the same way.
+fn restored(saved: Rect, current: Rect, size_only: bool, work: Option<Rect>) -> Rect {
+    if size_only {
+        fit_restored_size(
+            Rect {
+                x: current.x,
+                y: current.y,
+                ..saved
+            },
+            work,
+        )
+    } else {
+        fit_restored_size(saved, work)
+    }
 }
 
 /// The cache key a live window's bounds save under: its alias, else its label.
@@ -184,14 +242,14 @@ fn key_for(aliases: &HashMap<String, String>, label: &str) -> String {
         .unwrap_or_else(|| label.to_string())
 }
 
-/// Record `label`'s bounds under its current key.
-fn record(
-    cache: &mut HashMap<String, Rect>,
-    aliases: &HashMap<String, String>,
-    label: &str,
-    rect: Rect,
-) {
-    cache.insert(key_for(aliases, label), rect);
+/// Record a window's bounds under its resolved key; a skipped window records nothing.
+fn record(cache: &mut HashMap<String, Rect>, persist: &Persist, rect: Rect) {
+    match persist {
+        Persist::Bounds(key) | Persist::SizeOnly(key) => {
+            cache.insert(key.clone(), rect);
+        }
+        Persist::Skip => {}
+    }
 }
 
 /// Move `label`'s stored bounds to `key`, and when `live`, alias the window so later records land
@@ -237,10 +295,10 @@ pub fn persist_as<R: Runtime>(app: &AppHandle<R>, label: &str, key: &str) {
 }
 
 /// The windows shell-core owns that must never persist bounds: the home surface and the window
-/// form. Excluded
-/// structurally — for **save** as well as restore — rather than by a caller-supplied list, since
-/// every consumer has it and none of them should have to remember to list it. `skip` is the
-/// caller's own transient windows on top.
+/// form (both `runtime`). Excluded
+/// structurally — for **save** as well as restore — rather than by the app's mapping, since
+/// every consumer has them and none of them should have to remember to list them. The app's
+/// [`Persist::Skip`] covers its own transient windows on top.
 ///
 /// **A detached-tab window is deliberately NOT excluded**, though it is just as ephemeral. What
 /// makes it persistable is that its label is *deterministic per tab*: every consumer derives the
@@ -253,10 +311,14 @@ pub fn persist_as<R: Runtime>(app: &AppHandle<R>, label: &str, key: &str) {
 /// Ordinary windows already accumulate the same way (a title change orphans an entry), an entry is
 /// a handful of bytes, and pruning would need tab-identity knowledge this module deliberately
 /// does not have.
-fn is_excluded(state: &GeometryState, label: &str) -> bool {
-    label == crate::home::HOME_LABEL
-        || label == crate::windows::form::FORM_LABEL
-        || state.skip.contains(label)
+#[cfg(feature = "runtime")]
+fn structurally_excluded(label: &str) -> bool {
+    label == crate::home::HOME_LABEL || label == crate::windows::form::FORM_LABEL
+}
+
+#[cfg(not(feature = "runtime"))]
+fn structurally_excluded(_label: &str) -> bool {
+    false
 }
 
 /// A monitor's work area (screen minus menu bar and Dock) in points, converted with **that
@@ -337,6 +399,39 @@ fn fit_restored_size(saved: Rect, work: Option<Rect>) -> Rect {
     }
 }
 
+/// Apply a saved size at the window's own origin, clamped to the monitor it was built on (the
+/// primary when that can't be resolved). Returns the rect it applied.
+fn restore_size<R: Runtime>(window: &Window<R>, saved: Rect) -> Rect {
+    let current = window
+        .scale_factor()
+        .ok()
+        .and_then(|scale| {
+            let position = window.outer_position().ok()?.to_logical::<f64>(scale);
+            let size = window.inner_size().ok()?.to_logical::<f64>(scale);
+            Some(Rect {
+                x: position.x,
+                y: position.y,
+                width: size.width,
+                height: size.height,
+            })
+        })
+        .unwrap_or(saved);
+    let work = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .map(|m| work_area_points(&m));
+    let fitted = restored(saved, current, true, work);
+    // Same monitor throughout, so size-then-move has no cross-screen constraint to dodge; the
+    // move applies only when the clamp slid the window back inside its work area.
+    let _ = window.set_size(LogicalSize::new(fitted.width, fitted.height));
+    if fitted.x != current.x || fitted.y != current.y {
+        let _ = window.set_position(LogicalPosition::new(fitted.x, fitted.y));
+    }
+    fitted
+}
+
 /// Apply a saved rect, clamped to whichever monitor it most overlaps.
 ///
 /// `LogicalSize`/`LogicalPosition` pass through tao unscaled (`dpi`'s
@@ -352,7 +447,7 @@ fn restore<R: Runtime>(window: &Window<R>, saved: Rect) -> Rect {
 
     match pick_monitor(saved, &work_areas) {
         Some(i) => {
-            let fitted = fit_restored_size(saved, Some(work_areas[i]));
+            let fitted = restored(saved, saved, false, Some(work_areas[i]));
             // Move, then size, then move again — never just size-then-move. `fitted` is clamped to
             // the work area the window is *headed to*, but at this point it still sits at its
             // creation-time position (none of the three apps pass `.position()`/`.center()`, so tao
@@ -416,7 +511,6 @@ fn flush<R: Runtime>(app: &AppHandle<R>) {
     let fresh: Vec<(String, Rect)> = app
         .windows()
         .into_iter()
-        .filter(|(label, _)| !is_excluded(&state, label))
         .filter_map(|(label, window)| snapshot(&window).map(|rect| (label, rect)))
         .collect();
 
@@ -430,7 +524,8 @@ fn flush<R: Runtime>(app: &AppHandle<R>) {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for (label, rect) in fresh {
-            record(&mut cache, &aliases, &label, rect);
+            let persist = resolve(&*state.persist, &aliases, &label);
+            record(&mut cache, &persist, rect);
         }
         encode(&cache)
     };
@@ -449,11 +544,21 @@ fn flush<R: Runtime>(app: &AppHandle<R>) {
 }
 
 /// Build the geometry plugin. `filename` comes from [`geometry_filename`]; `skip_labels` are an
-/// app's own transient windows (the home surface and window form are excluded structurally — see [`is_excluded`],
-/// which also records why a detached-tab window is not).
+/// app's own transient windows (the home surface and window form are excluded structurally — see
+/// [`structurally_excluded`], which also records why a detached-tab window is not). Every other
+/// window persists its bounds under its own label.
 pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin<R> {
-    let skip: HashSet<String> = skip_labels.iter().map(|s| s.to_string()).collect();
+    build(filename, Box::new(skip_list(skip_labels)))
+}
 
+/// Build the geometry plugin with the app's own label → [`Persist`] mapping, for an app whose
+/// windows are not one-label-one-rect: e.g. pop-outs that share one remembered size per kind.
+pub fn plugin_keyed<R: Runtime>(filename: String, persist: fn(&str) -> Persist) -> TauriPlugin<R> {
+    build(filename, Box::new(persist))
+}
+
+fn build<R: Runtime>(filename: String, persist: Box<PersistFn>) -> TauriPlugin<R> {
+    let mut persist = Some(persist);
     tauri::plugin::Builder::new("shell-geometry")
         .setup(move |app, _api| {
             let cache = app
@@ -465,7 +570,7 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
                 .unwrap_or_default();
             app.manage(GeometryState {
                 filename: filename.clone(),
-                skip: skip.clone(),
+                persist: persist.take().expect("the geometry plugin is set up once"),
                 cache: Mutex::new(cache),
                 aliases: Mutex::new(HashMap::new()),
             });
@@ -474,15 +579,25 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
         .on_window_ready(|window| {
             let label = window.label().to_string();
             let state = window.state::<GeometryState>();
-            if is_excluded(&state, &label) {
-                return;
-            }
+            let persist = resolve(
+                &*state.persist,
+                &state
+                    .aliases
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+                &label,
+            );
+            let (key, size_only) = match &persist {
+                Persist::Bounds(key) => (key.clone(), false),
+                Persist::SizeOnly(key) => (key.clone(), true),
+                Persist::Skip => return,
+            };
 
             let saved = state
                 .cache
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .get(&label)
+                .get(&key)
                 .copied();
 
             // FOOTGUN: don't record a restoring window at its creation size. tao applies `set_size`
@@ -496,7 +611,11 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
             // saved rect. `None` when nothing is restored or the restore doesn't change the size.
             let creation = Mutex::new(saved.and_then(|rect| {
                 let before = snapshot(&window);
-                let fitted = restore(&window, rect);
+                let fitted = if size_only {
+                    restore_size(&window, rect)
+                } else {
+                    restore(&window, rect)
+                };
                 before.filter(|b| !same_size(*b, fitted))
             }));
 
@@ -547,7 +666,8 @@ pub fn plugin<R: Runtime>(filename: String, skip_labels: &[&str]) -> TauriPlugin
                     .aliases
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                record(&mut cache, &aliases, tracked.label(), rect);
+                let persist = resolve(&*state.persist, &aliases, tracked.label());
+                record(&mut cache, &persist, rect);
             });
         })
         .on_event(|app, event| {
@@ -769,7 +889,8 @@ mod tests {
         assert_eq!(cache.get("job"), Some(&rect(1.0, 2.0, 300.0, 400.0)));
         assert!(!cache.contains_key("work"));
 
-        record(&mut cache, &aliases, "work", rect(5.0, 6.0, 700.0, 800.0));
+        let persist = resolve(&skip_list(&[]), &aliases, "work");
+        record(&mut cache, &persist, rect(5.0, 6.0, 700.0, 800.0));
         assert_eq!(cache.get("job"), Some(&rect(5.0, 6.0, 700.0, 800.0)));
         assert!(!cache.contains_key("work"));
 
@@ -795,16 +916,84 @@ mod tests {
     /// assertion exists to fail on.
     #[test]
     fn is_excluded_covers_home_and_the_skip_list_but_not_an_ordinary_or_detached_window() {
-        let state = GeometryState {
-            filename: "test.json".to_string(),
-            skip: ["sidebar".to_string()].into_iter().collect(),
-            cache: Mutex::new(HashMap::new()),
-            aliases: Mutex::new(HashMap::new()),
-        };
-        assert!(is_excluded(&state, crate::home::HOME_LABEL));
-        assert!(is_excluded(&state, crate::windows::form::FORM_LABEL));
-        assert!(is_excluded(&state, "sidebar"));
-        assert!(!is_excluded(&state, "main"));
-        assert!(!is_excluded(&state, "shell-detach:abc123"));
+        let persist = skip_list(&["sidebar"]);
+        let aliases = HashMap::new();
+        let skipped = |label: &str| resolve(&persist, &aliases, label) == Persist::Skip;
+        #[cfg(feature = "runtime")]
+        {
+            assert!(skipped(crate::home::HOME_LABEL));
+            assert!(skipped(crate::windows::form::FORM_LABEL));
+        }
+        assert!(skipped("sidebar"));
+        assert!(!skipped("main"));
+        assert!(!skipped("shell-detach:abc123"));
+    }
+
+    /// Pop-outs keyed by kind: every `draft-*` window shares one stored size.
+    fn drafts_by_kind(label: &str) -> Persist {
+        match label {
+            "gone" => Persist::Skip,
+            l if l.starts_with("draft-") => Persist::SizeOnly("draft".to_string()),
+            l => Persist::Bounds(l.to_string()),
+        }
+    }
+
+    #[test]
+    fn keyed_record_lands_under_key() {
+        let aliases = HashMap::new();
+        let draft = Persist::SizeOnly("draft".to_string());
+        assert_eq!(resolve(&drafts_by_kind, &aliases, "draft-1"), draft);
+        assert_eq!(resolve(&drafts_by_kind, &aliases, "draft-2"), draft);
+        assert_eq!(
+            resolve(&drafts_by_kind, &aliases, "main"),
+            Persist::Bounds("main".to_string())
+        );
+    }
+
+    #[test]
+    fn an_alias_overrides_the_mapped_key() {
+        let aliases = HashMap::from([("work".to_string(), "job".to_string())]);
+        assert_eq!(
+            resolve(&drafts_by_kind, &aliases, "work"),
+            Persist::Bounds("job".to_string())
+        );
+    }
+
+    #[test]
+    fn skip_never_records() {
+        assert_eq!(
+            resolve(&drafts_by_kind, &HashMap::new(), "gone"),
+            Persist::Skip
+        );
+    }
+
+    #[test]
+    fn size_only_restore_keeps_the_current_origin() {
+        let work = rect(0.0, 0.0, 1440.0, 900.0);
+        let current = rect(100.0, 80.0, 640.0, 560.0);
+        assert_eq!(
+            restored(rect(900.0, 700.0, 800.0, 600.0), current, true, Some(work)),
+            rect(100.0, 80.0, 800.0, 600.0)
+        );
+        // Too big for the screen it opens on: clamped, slid back inside.
+        assert_eq!(
+            restored(
+                rect(900.0, 700.0, 2000.0, 1200.0),
+                current,
+                true,
+                Some(work)
+            ),
+            rect(0.0, 0.0, 1440.0, 900.0)
+        );
+    }
+
+    #[test]
+    fn bounds_restore_is_the_clamped_saved_rect() {
+        let work = rect(0.0, 0.0, 1440.0, 900.0);
+        let saved = rect(900.0, 700.0, 800.0, 600.0);
+        assert_eq!(
+            restored(saved, rect(100.0, 80.0, 640.0, 560.0), false, Some(work)),
+            fit_restored_size(saved, Some(work))
+        );
     }
 }

@@ -31,7 +31,8 @@ It has two parts, split by Cargo feature:
   - `geometry` persists each window's size and position in AppKit points, clamped to the target
     monitor's work area on restore, and never recorded while a window is fullscreen or minimized.
     Each config file gets its own saved geometry (`geometry_filename`). Restored geometry is
-    correct across monitors with different scale factors.
+    correct across monitors with different scale factors. `plugin_keyed` takes the app's own
+    label → `Persist` mapping instead, e.g. one remembered size shared by every pop-out of a kind.
   - `menu::build_spine()` builds the **menu spine** — the App submenu (About, Check for Updates…),
     the Config submenu (Edit Config / Reveal in Finder), the Window submenu (a checked per-window
     selector) and the Edit submenu, with constants for the shortcuts every app shares (⌘W closes a
@@ -87,6 +88,9 @@ shell-core = { git = "https://github.com/Lockyc/shell-core", rev = "<commit>", d
 [dependencies]
 shell-core = { git = "https://github.com/Lockyc/shell-core", rev = "<commit>", features = ["runtime"] }
 ```
+
+An app that needs only banners and window geometry takes those two features alone:
+`default-features = false, features = ["banner", "geometry"]`.
 
 `build.rs` materializes the scripts + stamps the build:
 

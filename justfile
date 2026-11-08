@@ -54,4 +54,5 @@ zero-dep:
 gate: zero-dep
     cargo fmt --check
     cargo clippy --features runtime --all-targets -- -D warnings
+    cargo clippy --no-default-features --features banner,geometry --all-targets -- -D warnings
     cargo test --features runtime
