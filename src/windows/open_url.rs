@@ -67,11 +67,11 @@ mod tests {
     #[test]
     fn parses_an_encoded_open_url() {
         let r = req(
-            "flotilla://open?window=Rotary%20Club&group=Bulletins&url=https%3A%2F%2Fdocs.google.com%2Fdocument%2Fd%2FA%2Fedit%3Fusp%3Dsharing%26x%3D1%2Bb%23heading%3Dh.1",
+            "flotilla://open?window=Book%20Club&group=Bulletins&url=https%3A%2F%2Fdocs.google.com%2Fdocument%2Fd%2FA%2Fedit%3Fusp%3Dsharing%26x%3D1%2Bb%23heading%3Dh.1",
             "flotilla",
         )
         .unwrap();
-        assert_eq!(r.window.as_deref(), Some("Rotary Club"));
+        assert_eq!(r.window.as_deref(), Some("Book Club"));
         assert_eq!(r.param("group"), Some("Bulletins"));
         assert_eq!(
             r.param("url"),
