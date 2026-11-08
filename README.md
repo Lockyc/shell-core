@@ -49,8 +49,8 @@ It has two parts, split by Cargo feature:
     `form` + `flow` are the New/Edit/Delete Window form and its menu items. The app builds each
     window's content and writes the form's result to its own config. `label` names a window's
     child webviews (`{window}:{within}`).
-  - `detach` pops a tab out into its own window: shell-core provides the window and its banner;
-    the app moves the tab's content into it.
+  - `detach` pops a tab out into its own window: shell-core provides the window, its banner and
+    an error bar for the app's config load error; the app moves the tab's content into it.
   - `compositing` positions content webviews in the area the sidebar leaves free (`HoleRect`,
     `layout_webviews`). Used by curator, lector and flotilla.
   - `watch` is the config-file hot-reload watcher (it ignores the app's own format-on-save

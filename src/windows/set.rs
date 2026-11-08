@@ -492,7 +492,13 @@ impl WindowSet {
         self.sync_home(app);
     }
 
-    /// Record a failed config load (`None` clears it) for the home surface's broken state.
+    /// The last config load's error, if the config is broken now.
+    pub fn load_error(&self) -> Option<String> {
+        self.lock().load_error.clone()
+    }
+
+    /// Record a failed config load (`None` clears it) for the home surface's broken state and
+    /// every pop-out's error bar.
     pub fn set_load_error(&self, app: &AppHandle, error: Option<String>) {
         self.lock().load_error = error;
         self.sync_home(app);
@@ -563,10 +569,22 @@ impl WindowSet {
         }
     }
 
+    /// Bring the home surface, and every pop-out's error bar ([`crate::detach::ERROR_EVENT`]), in
+    /// line with the set — the one place a load error, or its clearing, is published.
     fn sync_home(&self, app: &AppHandle) {
         let path = self.config_path.display().to_string();
         let exists = self.config_path.exists();
-        let sync = self.lock().home_sync(exists, &path);
+        let (sync, error) = {
+            let st = self.lock();
+            (st.home_sync(exists, &path), st.load_error.clone())
+        };
+        {
+            use tauri::Emitter as _;
+            let _ = app.emit(
+                crate::detach::ERROR_EVENT,
+                serde_json::json!({ "error": error }),
+            );
+        }
         match sync {
             HomeSync::Skip => {}
             HomeSync::Show(s) => {

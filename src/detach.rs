@@ -94,10 +94,18 @@ pub struct DetachSpec {
 /// are embedded: `width`/`height` size the *window* at creation time, the page itself never reads
 /// them. `label` is the window's own Tauri label, which the page uses to drop a [`PANES_EVENT`]
 /// addressed to a sibling detached window (`emit_to` reaches every webview, so per-window events
-/// are stamped and filtered). `panes` serialises exactly as [`set_panes`] sends it.
-fn detach_payload_json(spec: &DetachSpec, app_name: &str, label: &str) -> String {
+/// are stamped and filtered). `panes` serialises exactly as [`set_panes`] sends it. `loadError` is
+/// the app's config load error at open time, so a pop-out opened while the config is broken shows
+/// it from its first frame; [`ERROR_EVENT`] keeps it current after.
+fn detach_payload_json(
+    spec: &DetachSpec,
+    app_name: &str,
+    label: &str,
+    load_error: Option<&str>,
+) -> String {
     let mut v = serde_json::json!({
         "appName": app_name, "title": spec.title, "label": label, "colour": spec.colour,
+        "loadError": load_error,
     });
     if spec.panes.len() > 1 {
         v["panes"] = serde_json::json!(spec.panes);
@@ -168,6 +176,12 @@ pub fn set_focused_hole<R: tauri::Runtime>(
     )
 }
 
+/// The event [`crate::windows::WindowSet`] emits app-wide whenever it syncs the home surface:
+/// `{ "error": <the config load error, or null> }`. Every pop-out shows the same error, so it
+/// carries no label. A pop-out has no sidebar error bar and keeps the home surface away, so
+/// without this a config broken while only pop-outs are open would be reported nowhere.
+pub const ERROR_EVENT: &str = "shell-detach:error";
+
 /// The banner's height in logical px: [`DETACH_HTML`]'s `#banner` (2.25rem at WebKit's default
 /// 16px root).
 pub const BANNER_H: f64 = 36.0;
@@ -220,8 +234,12 @@ where
     R: tauri::Runtime,
     F: FnOnce(&tauri::WebviewWindow<R>, tauri::LogicalSize<f64>) -> tauri::Result<()>,
 {
+    use tauri::Manager as _;
     let label = detached_label(token);
-    let payload = detach_payload_json(spec, app_name, &label);
+    let load_error = app
+        .try_state::<crate::windows::WindowSet>()
+        .and_then(|set| set.load_error());
+    let payload = detach_payload_json(spec, app_name, &label, load_error.as_deref());
 
     let url: tauri::Url = format!("{DETACH_SCHEME}://localhost/")
         .parse()
@@ -360,8 +378,10 @@ mod tests {
             },
             "warden",
             "shell-detach:x",
+            Some("bad \"key\""),
         );
         assert!(s.contains("a\\\"b"));
+        assert!(s.contains("\"loadError\":\"bad \\\"key\\\"\""));
         assert!(!s.contains("a\"b"));
         assert!(s.contains("\"colour\":\"#fff\""));
     }
@@ -379,8 +399,10 @@ mod tests {
             },
             "lector",
             "shell-detach:x",
+            None,
         );
         assert!(s.contains("\"colour\":null"));
+        assert!(s.contains("\"loadError\":null"));
     }
 
     #[test]
@@ -393,7 +415,7 @@ mod tests {
             panes: vec![],
             pane_band: None,
         };
-        let json = detach_payload_json(&spec, "warden", "shell-detach:x");
+        let json = detach_payload_json(&spec, "warden", "shell-detach:x", None);
         assert!(
             !json.contains("\"panes\""),
             "single-hole payload must not carry panes: {json}"
@@ -410,7 +432,7 @@ mod tests {
             panes: vec![0.3, 0.7],
             pane_band: Some([0.1, 0.9]),
         };
-        let json = detach_payload_json(&spec, "warden", "shell-detach:x");
+        let json = detach_payload_json(&spec, "warden", "shell-detach:x", None);
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["panes"], serde_json::json!([0.3, 0.7]), "got: {json}");
         assert_eq!(v["paneBand"], serde_json::json!([0.1, 0.9]), "got: {json}");
@@ -428,7 +450,7 @@ mod tests {
             panes: vec![],
             pane_band: Some([0.1, 0.9]),
         };
-        let json = detach_payload_json(&spec, "warden", "shell-detach:x");
+        let json = detach_payload_json(&spec, "warden", "shell-detach:x", None);
         assert!(!json.contains("\"panes\""), "got: {json}");
         assert!(json.contains("\"paneBand\":[0.1,0.9]"), "got: {json}");
     }
@@ -445,7 +467,7 @@ mod tests {
             panes: vec![],
             pane_band: None,
         };
-        let json = detach_payload_json(&spec, "warden", "shell-detach:abc");
+        let json = detach_payload_json(&spec, "warden", "shell-detach:abc", None);
         assert!(
             json.contains("\"label\":\"shell-detach:abc\""),
             "got: {json}"
