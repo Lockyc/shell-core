@@ -513,6 +513,93 @@ pub fn close_window_pages(window: &Window) {
     }
 }
 
+/// The longest [`end_pages_for_exit`] holds up an exit waiting for pages to finish unloading.
+pub const EXIT_UNLOAD_CAP: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// End every content page as the app exits, then wait — at most [`EXIT_UNLOAD_CAP`] — for their
+/// WebContent processes to finish. Call it from the app's `RunEvent::Exit`: a quit (⌘Q, the Dock,
+/// an Apple Event `quit`) delivers that event and not `ExitRequested`.
+///
+/// Without it a quit kills every page with no unload, so state a page releases on `pagehide`
+/// survives the quit still held. Element's session lock is the case that shows: its owner ping
+/// stays fresh in localStorage, and a relaunch within the lock's 30 s expiry finds it and shows
+/// "Element is open in another window" with a Continue button.
+///
+/// `_close` ([`close_page`]) runs the page's `pagehide`/`unload` in its WebContent process, which
+/// then exits; the storage writes the handlers made have reached the network process by then, and
+/// WebKit flushes that on terminate. The wait is load-bearing: exiting straight after the close
+/// kills the process before the handlers run. It turns the main run loop rather than sleeping:
+/// the close only progresses while the UI process services it, so a blocked main thread waits out
+/// the whole cap with every page still running.
+pub fn end_pages_for_exit(app: &AppHandle) {
+    let mut pids = Vec::new();
+    for (label, wv) in app.webviews() {
+        if label == wv.window().label() || crate::downloads::popup::is_popup_label(&label) {
+            continue;
+        }
+        pids.extend(web_process_id(&wv));
+        close_page(&wv);
+    }
+    let deadline = std::time::Instant::now() + EXIT_UNLOAD_CAP;
+    while pids.iter().any(|&p| process_alive(p)) && std::time::Instant::now() < deadline {
+        turn_run_loop(std::time::Duration::from_millis(10));
+    }
+}
+
+/// Run the current thread's run loop for up to `slice`.
+fn turn_run_loop(slice: std::time::Duration) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSRunLoop};
+        let until = NSDate::dateWithTimeIntervalSinceNow(slice.as_secs_f64());
+        unsafe { NSRunLoop::currentRunLoop().runMode_beforeDate(NSDefaultRunLoopMode, &until) };
+    }
+    #[cfg(not(target_os = "macos"))]
+    std::thread::sleep(slice);
+}
+
+/// The pid of the WebContent process running `wv`'s page (`-[WKWebView _webProcessIdentifier]`,
+/// SPI guarded like [`close_page`]'s), or `None` without one.
+fn web_process_id(wv: &tauri::Webview) -> Option<i32> {
+    #[cfg(target_os = "macos")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let _ = wv.with_webview(move |pw| {
+            use objc2::runtime::AnyObject;
+            use objc2::{msg_send, sel};
+            let pid = unsafe {
+                (pw.inner() as *mut AnyObject).as_ref().and_then(|view| {
+                    let has: bool =
+                        msg_send![view, respondsToSelector: sel!(_webProcessIdentifier)];
+                    has.then(|| msg_send![view, _webProcessIdentifier])
+                })
+            };
+            let _ = tx.send(pid.filter(|&p: &i32| p > 0));
+        });
+        rx.try_recv().ok().flatten()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = wv;
+        None
+    }
+}
+
+/// Signal 0 checks existence only. WebContent is an XPC service parented by launchd, so an exited
+/// one leaves no zombie of ours to look alive.
+#[cfg(unix)]
+fn process_alive(pid: i32) -> bool {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    unsafe { kill(pid, 0) == 0 }
+}
+
+#[cfg(not(unix))]
+fn process_alive(_pid: i32) -> bool {
+    false
+}
+
 /// Ends `window`'s content pages ([`close_window_pages`]) whenever it is asked to close, by the user
 /// or by `close()`. It must be `CloseRequested`: by `Destroyed` (where
 /// [`crate::detach::wire_return`]'s `on_close` runs) the window has already dropped its webviews,

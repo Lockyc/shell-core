@@ -88,7 +88,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSView",
     "NSColor",
 ], optional = true }
-objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSBundle", "NSString", "NSDictionary", "NSObject", "NSError"], optional = true }
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSBundle", "NSString", "NSDictionary", "NSObject", "NSError", "NSRunLoop", "NSDate"], optional = true }
 block2 = { version = "0.6", optional = true }
 # Native banners (src/banner.rs). `tauri-plugin-notification` posts through the deprecated
 # `NSUserNotification`, a silent no-op on macOS 26.
