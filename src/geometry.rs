@@ -234,6 +234,12 @@ fn restored(saved: Rect, current: Rect, size_only: bool, work: Option<Rect>) -> 
     }
 }
 
+/// Whether the exit flush re-records a live window. A [`Persist::SizeOnly`] key is shared by
+/// every window of a kind, so the Moved/Resized handler's last write (the size last set) stands.
+fn flushes(persist: &Persist) -> bool {
+    matches!(persist, Persist::Bounds(_))
+}
+
 /// The cache key a live window's bounds save under: its alias, else its label.
 fn key_for(aliases: &HashMap<String, String>, label: &str) -> String {
     aliases
@@ -525,7 +531,9 @@ fn flush<R: Runtime>(app: &AppHandle<R>) {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for (label, rect) in fresh {
             let persist = resolve(&*state.persist, &aliases, &label);
-            record(&mut cache, &persist, rect);
+            if flushes(&persist) {
+                record(&mut cache, &persist, rect);
+            }
         }
         encode(&cache)
     };
@@ -957,6 +965,15 @@ mod tests {
             resolve(&drafts_by_kind, &aliases, "work"),
             Persist::Bounds("job".to_string())
         );
+    }
+
+    /// Several live windows share a `SizeOnly` key; at exit, recording each would let whichever
+    /// the map yields last overwrite the size the user last set.
+    #[test]
+    fn the_exit_flush_records_bounds_but_not_shared_sizes() {
+        assert!(flushes(&Persist::Bounds("main".to_string())));
+        assert!(!flushes(&Persist::SizeOnly("draft".to_string())));
+        assert!(!flushes(&Persist::Skip));
     }
 
     #[test]
