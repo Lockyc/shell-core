@@ -56,6 +56,10 @@ pub const ACCEL_POP_OUT_TAB: &str = "Shift+Cmd+KeyO";
 /// find-in-terminal from warden's.
 pub const ACCEL_FIND_IN_SIDEBAR: &str = "Shift+Cmd+KeyF";
 
+/// Reload Tab — ⌘R, the browser's. The item and what it reloads are each app's (curator,
+/// flotilla); lector's pages reload themselves on save.
+pub const ACCEL_RELOAD_TAB: &str = "Cmd+KeyR";
+
 /// Toggle Sidebar — ⌃⌘S, macOS's own Show/Hide Sidebar chord (Finder, Mail).
 pub const ACCEL_TOGGLE_SIDEBAR: &str = "Ctrl+Cmd+KeyS";
 

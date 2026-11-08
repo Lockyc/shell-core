@@ -83,8 +83,10 @@ getrandom = { version = "0.2", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
     "NSEvent",
     "NSResponder",
+    "NSWindow",
     "NSView",
     "NSColor",
 ], optional = true }
@@ -106,8 +108,9 @@ objc2-user-notifications = { version = "0.3", features = [
 # The watch.rs hot-reload test writes a temp config dir and waits for the callback to fire.
 tempfile = "3"
 
-# tests/scroll_clamp.rs drives a real WKWebView on the main thread.
+# tests/scroll_clamp.rs and tests/edit_keys.rs drive a real WKWebView on the main thread.
 [target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2 = "0.6"
 objc2-web-kit = { version = "0.3", features = [
     "WKWebView",
     "WKWebViewConfiguration",
@@ -116,11 +119,16 @@ objc2-web-kit = { version = "0.3", features = [
     "WKNavigation",
     "objc2-app-kit",
 ] }
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder", "NSView"] }
-objc2-foundation = { version = "0.3", features = ["NSDate", "NSRunLoop", "NSProcessInfo", "NSString", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder", "NSView", "NSWindow", "NSEvent", "NSMenu", "NSMenuItem", "NSGraphics"] }
+objc2-foundation = { version = "0.3", features = ["NSDate", "NSRunLoop", "NSProcessInfo", "NSString", "NSGeometry", "NSObject"] }
 
 # WebKit must run on the process's main thread, which libtest never gives a test.
 [[test]]
 name = "scroll_clamp"
+harness = false
+required-features = ["runtime"]
+
+[[test]]
+name = "edit_keys"
 harness = false
 required-features = ["runtime"]

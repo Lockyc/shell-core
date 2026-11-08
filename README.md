@@ -58,6 +58,8 @@ It has two parts, split by Cargo feature:
     writes); the app re-parses the file. Used by curator, lector and flotilla.
   - `mouse_nav` drives WKWebView back/forward from the mouse side buttons, and `progress_bar` draws
     the page-load bar on each content webview. Used by curator and lector; flotilla uses `mouse_nav`.
+  - `edit_keys` lets the focused web page handle undo, redo and select all before the Edit menu
+    does, so editors with their own undo (Google Docs) work. Every app, via `register_plugins`.
   - `banner` posts native macOS notifications; clicking one hands the app the window and tab that
     raised it. Used by curator and warden.
   - `web` is the content-webview layer: link routing and escape sentinels (`web::escape`), the

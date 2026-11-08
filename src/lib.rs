@@ -126,6 +126,9 @@ pub mod web;
 #[cfg(feature = "runtime")]
 pub mod mouse_nav;
 
+#[cfg(feature = "runtime")]
+pub mod edit_keys;
+
 /// Spawn `cmd` without blocking the caller, and wait on it from a throwaway thread — the crate's
 /// one spawn path for a fire-and-forget `open`. Dropping a `Child` never reaps it, so an unwaited
 /// `open` would linger as a zombie for the app's life.
@@ -190,8 +193,8 @@ mod runtime {
 
     /// Register the plugins every consuming app installs identically: window geometry (persist
     /// each window's size/position in points, keyed per-config-file via
-    /// [`crate::geometry::geometry_filename`]), the updater, and the process plugin (for the
-    /// updater's relaunch). Returns the builder for continued chaining.
+    /// [`crate::geometry::geometry_filename`]), the updater, the process plugin (for the
+    /// updater's relaunch), and [`crate::edit_keys`]. Returns the builder for continued chaining.
     ///
     /// `config_path` is the app's resolved config path — `Some(path)` scopes the geometry file to
     /// it; `None` uses an unscoped default name.
@@ -209,7 +212,15 @@ mod runtime {
         let filename = config_path
             .map(crate::geometry::geometry_filename)
             .unwrap_or_else(|| ".window-geometry.json".to_string());
+        // A plugin's setup runs on the main thread, as the `edit_keys` monitor requires.
+        let edit_keys = tauri::plugin::Builder::<R>::new("shell-edit-keys")
+            .setup(|_, _| {
+                crate::edit_keys::install();
+                Ok(())
+            })
+            .build();
         let builder = builder
+            .plugin(edit_keys)
             .plugin(crate::geometry::plugin(filename, skip_labels))
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_process::init());
