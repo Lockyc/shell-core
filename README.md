@@ -1,6 +1,6 @@
 <h1 align="center">shell-core</h1>
 
-<p align="center">The shared Tauri app-shell + release tooling for <a href="https://github.com/Lockyc/curator">curator</a>, <a href="https://github.com/Lockyc/warden">warden</a>, and <a href="https://github.com/Lockyc/lector">lector</a> — one release pipeline, many apps.</p>
+<p align="center">The shared Tauri app-shell + release tooling for <a href="https://github.com/Lockyc/curator">curator</a>, <a href="https://github.com/Lockyc/warden">warden</a>, <a href="https://github.com/Lockyc/lector">lector</a> and <a href="https://github.com/Lockyc/flotilla">flotilla</a> — one release pipeline, many apps.</p>
 
 <p align="center">
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-555">
@@ -8,8 +8,8 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Lockyc/shell-core"></a>
 </p>
 
-curator (browser keeper-tabs), warden (terminals), and lector (local doc sites) are sibling macOS
-Tauri apps. `shell-core` holds their shared **build/release tooling** and **Tauri runtime setup**,
+curator (browser keeper-tabs), warden (terminals), lector (local doc sites) and flotilla
+(document workspaces) are sibling macOS Tauri apps. `shell-core` holds their shared **build/release tooling** and **Tauri runtime setup**,
 alongside [chrome-core](https://github.com/Lockyc/chrome-core) (the view) and
 [config-core](https://github.com/Lockyc/config-core) (config primitives).
 
@@ -23,7 +23,8 @@ It has two parts, split by Cargo feature:
   `materialize_scripts`. App-specific values are read from a tracked per-app
   `scripts/tooling.env` (template: `scripts/tooling.env.example`). The second build-time helper,
   `build_stamp()`, stamps the git sha and date for the About box. This feature set also exports
-  `tabs::pick_live_neighbour`, which picks the tab that becomes active after one unloads.
+  `tabs::pick_live_neighbour`, which picks the tab that becomes active after one unloads, and
+  `label`, which names a window's child webviews (`{window}:{within}`).
 - **Runtime (`runtime` feature).** The shared app-shell:
   - `register_plugins(builder, config_path, skip_labels)` installs the shared plugins — `geometry`,
     the updater, and the process plugin (for the updater's relaunch) — and
@@ -48,8 +49,7 @@ It has two parts, split by Cargo feature:
   - `windows` runs every app's config-declared windows: `WindowSet` opens, focuses, renames in
     place and closes them from the app's declarations (and can quit when the last one closes), and
     `form` + `flow` are the New/Edit/Delete Window form and its menu items. The app builds each
-    window's content and writes the form's result to its own config. `label` names a window's
-    child webviews (`{window}:{within}`).
+    window's content and writes the form's result to its own config.
   - `detach` pops a tab out into its own window: shell-core provides the window, its banner and
     an error bar for the app's config load error; the app moves the tab's content into it.
   - `compositing` positions content webviews in the area the sidebar leaves free (`HoleRect`,
@@ -57,7 +57,7 @@ It has two parts, split by Cargo feature:
   - `watch` is the config-file hot-reload watcher (it ignores the app's own format-on-save
     writes); the app re-parses the file. Used by curator, lector and flotilla.
   - `mouse_nav` drives WKWebView back/forward from the mouse side buttons, and `progress_bar` draws
-    the page-load bar on each content webview. Used by curator and lector; flotilla uses `mouse_nav`.
+    the page-load bar on every content webview `web::content` builds.
   - `edit_keys` lets the focused web page handle undo, redo and select all before the Edit menu
     does, so editors with their own undo (Google Docs) work. Every app, via `register_plugins`.
   - `banner` posts native macOS notifications; clicking one hands the app the window and tab that
