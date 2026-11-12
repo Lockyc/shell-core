@@ -11,11 +11,6 @@ The app shell and release pipeline four macOS Tauri apps share —
 menus, web views, notifications and updater every app needs; at build time it is a one-command
 signed release. Each app's own content, menu items and commands stay in the app.
 
-## Consumers
-
-warden, curator, lector and flotilla, each pinned to a **commit rev**. There are no tags or
-releases.
-
 ## Use
 
 Pin shell-core twice — with no features (no Tauri) as a build-dependency for `build.rs`, and with
@@ -77,7 +72,7 @@ commands.
 
 ## Status
 
-In use by all four apps.
+In use by all four apps, each pinned to a commit rev; there are no tags or releases.
 
 ## Related
 
