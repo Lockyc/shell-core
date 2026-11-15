@@ -142,7 +142,8 @@ pub fn birth_hole(size: tauri::LogicalSize<f64>) -> crate::compositing::HoleRect
 }
 
 /// Open a detached tab's window: the banner-shell surface (this window's *primary* webview,
-/// serving [`DETACH_HTML`] over [`DETACH_SCHEME`]) plus whatever content the caller docks into it.
+/// by default serving [`DETACH_HTML`] over [`DETACH_SCHEME`]; [`DetachSpec::page`] replaces it)
+/// plus whatever content the caller docks into it.
 ///
 /// Mirrors [`crate::home::show_home`]'s construction exactly, for the same reason
 /// [`crate::home::close_home`]'s doc records: a bare `WindowBuilder` + `add_child`ed webview is
