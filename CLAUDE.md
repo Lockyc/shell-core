@@ -135,7 +135,7 @@ vendored source.**
 - **The gate is not curator-specific.** lector hosts remote `127.0.0.1` content too (same threat
   shape as curator), and origin dispatch — not any label gate — is what isolates it. shell-core's own
   home + detach surfaces are exactly the second-*local*-surface case, but they serve **fixed,
-  shell-core-bundled** HTML (no untrusted content), so they need no gate. A future third local surface
+  bundled** HTML — shell-core's, or the app's own via `DetachSpec::page` (no untrusted content), so they need no gate. A future third local surface
   hosting anything user-supplied would need an explicit gate.
 - **curator's `require_chrome` is therefore redundant belt-and-braces** (curator meets the
   precondition exactly: tauri 2.11.5, and its capability grants only `core:*`/`updater`/`process` —
