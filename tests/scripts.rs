@@ -415,3 +415,30 @@ fn install_marks_a_dirty_build() {
     f.write("scratch.txt", "uncommitted\n");
     assert_eq!(install_and_read_stamp(&f), format!("{head}-dirty"));
 }
+
+/// An app whose cores live under another owner sets CORE_PARENT in tooling.env; `dev` then looks
+/// there, not at `..`.
+#[test]
+fn core_patch_finds_cores_under_core_parent() {
+    let f = Fixture::new("core-parent");
+    let env = std::fs::read_to_string(f.app.join("scripts/tooling.env")).unwrap();
+    f.write(
+        "scripts/tooling.env",
+        &format!("{env}\nCORE_PARENT=cores\n"),
+    );
+
+    std::fs::create_dir_all(f.root.join("widget-core")).unwrap();
+    let out = f
+        .script("core-patch.sh", &["dev", "widget"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "a core at .. is not found");
+    assert!(text(&out.stderr).contains("cores/widget-core not found"));
+
+    std::fs::create_dir_all(f.app.join("cores/widget-core")).unwrap();
+    let out = f
+        .script("core-patch.sh", &["dev", "widget"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "dev: {}", text(&out.stderr));
+}

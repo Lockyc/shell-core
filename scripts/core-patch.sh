@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # core-patch.sh — the shared-core dev loop: build against a sibling checkout, re-pin, and guard.
-#   core-patch.sh dev <core>   activate <core>'s [patch] → build against ../<crate>, edits included
-#   core-patch.sh pin <core>   pin <core> to ../<crate>'s pushed HEAD and deactivate its [patch]
+#   core-patch.sh dev <core>   activate <core>'s [patch] → build against <crate>'s checkout, edits included
+#   core-patch.sh pin <core>   pin <core> to <crate>'s pushed HEAD and deactivate its [patch]
 #   core-patch.sh pin all      pin every core, in tooling.env order, stopping at the first failure
 #   core-patch.sh guard        fail while any [patch] is active in the workspace Cargo.toml
 #
@@ -12,7 +12,7 @@
 #
 # Per-app data is the tracked scripts/tooling.env's CORES: space-separated `<core>:<crate>:<manifest>`
 # entries. <core> is the recipe prefix and the `#PATCH:<core>#` marker in the workspace Cargo.toml;
-# <crate> is the crate, its github.com/Lockyc repo and the ../<crate> sibling checkout; <manifest>
+# <crate> is the crate, its github.com/Lockyc repo and its sibling checkout (at CORE_PARENT, default `..`, which tooling.env may set); <manifest>
 # is the Cargo.toml (from the repo root) whose git dep line carries the pinned rev, or a comma-separated
 # list of them when several of the workspace's crates pin the core (re-pinned together).
 #
@@ -25,6 +25,9 @@ cd "$(dirname "$0")/.."
 
 : "${CORES:?tooling.env must set CORES (space-separated <core>:<crate>:<manifest> entries)}"
 GIT_BASE="https://github.com/Lockyc"
+# Where the core checkouts sit, relative to the app root. tooling.env may set CORE_PARENT for an app
+# whose checkout lives under another owner; the `path =` of its commented [patch] lines must agree.
+CORE_PARENT="${CORE_PARENT:-..}"
 
 fail() {
   echo "✗ $*" >&2
@@ -54,16 +57,16 @@ resolve() {
 cmd_dev() {
   resolve "$1"
   local core=$1 tmp
-  if [ ! -d "../$CRATE" ]; then fail "../$CRATE not found — ghq get github.com/Lockyc/$CRATE"; fi
+  if [ ! -d "$CORE_PARENT/$CRATE" ]; then fail "$CORE_PARENT/$CRATE not found — ghq get github.com/Lockyc/$CRATE"; fi
   tmp=$(mktemp)
   sed "s/^#PATCH:${core}#//" Cargo.toml >"$tmp" && mv "$tmp" Cargo.toml
-  echo "✓ $CRATE → local ../$CRATE (patch active). Iterate, then: just run"
+  echo "✓ $CRATE → local $CORE_PARENT/$CRATE (patch active). Iterate, then: just run"
   echo "  ⚠ NEVER commit an active patch — run 'just $core-pin' first ('just gate' will block it)."
 }
 
 cmd_pin() {
   resolve "$1"
-  local core=$1 cc="../$CRATE" rev tmp
+  local core=$1 cc="$CORE_PARENT/$CRATE" rev tmp
   if [ ! -d "$cc" ]; then fail "$cc not found"; fi
   if [ -n "$(git -C "$cc" status --porcelain)" ]; then fail "$CRATE has uncommitted changes — commit + push it first"; fi
   git -C "$cc" fetch -q origin
@@ -79,7 +82,7 @@ cmd_pin() {
     if ! grep -qF "rev = \"$rev\"" "$manifest"; then fail "$core-pin: failed to write rev into $manifest — dep line shape changed, re-pin by hand"; fi
   done
   tmp=$(mktemp)
-  sed -E 's|^\[patch\."'"$GIT_BASE/$CRATE"'"\]$|#PATCH:'"$core"'#&|; s|^'"$CRATE"' = \{ path = "\.\./'"$CRATE"'" \}$|#PATCH:'"$core"'#&|' Cargo.toml >"$tmp" && mv "$tmp" Cargo.toml
+  sed -E 's|^\[patch\."'"$GIT_BASE/$CRATE"'"\]$|#PATCH:'"$core"'#&|; s|^'"$CRATE"' = \{ path = "[^"]*/'"$CRATE"'" \}$|#PATCH:'"$core"'#&|' Cargo.toml >"$tmp" && mv "$tmp" Cargo.toml
   if grep -qE '^\[patch\."'"$GIT_BASE/$CRATE"'"\]$' Cargo.toml; then fail "$core-pin: $CRATE [patch] still active after re-comment — check Cargo.toml"; fi
   # Reconcile Cargo.lock on a patch→git flip: a bare -p cannot match the patched (path) source, a
   # minimal resolve does.
