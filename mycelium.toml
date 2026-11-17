@@ -1,46 +1,39 @@
-name    = "shell-core"
+name = "shell-core"
 summary = "The shared Tauri app-shell + release tooling for warden, curator, lector, and flotilla"
-kind    = "library"
-status  = "active"
-tags    = ["tauri", "release", "tooling", "shared-core", "macos"]
-stack   = ["rust", "bash"]
+status = "active"
+tags = ["tauri", "release", "tooling", "shared-core", "macos"]
 
 [[provides]]
-name    = "release-tooling"
+name = "release-tooling"
 summary = "The release, install and core-patch scripts as the source of truth, embedded and materialized into each consuming app: a one-command release (build + notarize, then tag, fast-forward main, push, publish with assets) and the shared-core [patch] dev/pin loop behind every app's <core>-dev / <core>-pin recipes. Every app-specific value comes from a tracked per-app scripts/tooling.env. Zero-dependency, so a build-dependency stays light."
-
 [[provides]]
-name    = "app-shell"
+name = "app-shell"
 summary = "The Tauri runtime sliver identical for any such app: register_plugins() (per-window geometry persistence, updater, process) and build_stamp() for the About box."
-
 [[provides]]
-name    = "menu-spine"
+name = "menu-spine"
 summary = "menu::build_spine() — the App/Config/Window/Edit submenus (About, Check for Updates…, Edit/Reveal Config, a checked per-window selector, the clipboard items) identical across the family — menu::build_tab_menu() (the whole Tab submenu: ⌘⇧[/⌘⇧] cycling, the Cycle Tabs with ⌘1/⌘2 toggle, Close/Pop Out/Find, the app's own groups, ⌘1–9 jumps) and menu::route() (which window a command acts on, popped-out windows included). The family-standard accelerators are constants here."
-
 [[provides]]
-name    = "home-surface"
+name = "home-surface"
 summary = "home::{home_state, show_home, close_home} — the surface an app shows when it would otherwise have no window (no config / a load error / a valid config's window list), so the app is never stranded invisible. Never touches config-core itself — the consuming app wires the \"Create a starter config\" action, keeping the cores mutually independent."
-
 [[provides]]
-name    = "detach-surface"
+name = "detach-surface"
 summary = "detach::{open_detached, wire_return, set_panes, set_focused_hole} — a popped-out tab's own window: the label scheme, the banner-shell page and its content hole (optionally divided into panes), and the return-on-close hook the app redocks through."
-
 [[provides]]
-name    = "compositing"
+name = "compositing"
 summary = "compositing::{HoleRect, CHROME_W, initial_hole, layout_webviews} — the hole-punch layout curator and lector share: the sidebar chrome is the window's main webview and Rust positions the content webviews in the hole it reports."
-
 [[provides]]
-name    = "config-watch"
+name = "config-watch"
 summary = "watch::watch_config — the config-file hot-reload watcher curator and lector share: a parent-directory watch matched by file name (atomic-save and FSEvents safe) that swallows the echo of its own format-on-save write."
-
 [[provides]]
-name    = "mouse-nav"
+name = "mouse-nav"
 summary = "mouse_nav — mouse side-button back/forward navigation for content webviews (WKWebView acts on neither), via a local NSEvent monitor driving the focused webview's history."
-
 [[provides]]
-name    = "progress-bar"
+name = "progress-bar"
 summary = "progress_bar::install — a thin determinate loading bar pinned to the top of each content WKWebView, driven by WebKit's own progress signal, in the app's accent colour."
-
 [[provides]]
-name    = "tab-unload-policy"
+name = "tab-unload-policy"
 summary = "tabs::pick_live_neighbour — the one policy every app uses for which sibling becomes active after a tab unloads: the nearest loaded neighbour, else none."
+
+[github]
+description = "The shared Tauri app-shell + release tooling for warden, curator, lector, and flotilla"
+topics = ["bash", "macos", "release", "rust", "shared-core", "tauri", "tooling"]
