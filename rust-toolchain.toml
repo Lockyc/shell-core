@@ -6,5 +6,5 @@
 # so this pin does NOT reach them: it governs only standalone shell-core
 # development, and each consuming app compiles shell-core with its own pin.
 [toolchain]
-channel = "1.96.0"
+channel = "1.99.1"
 components = ["rustfmt", "clippy"]
