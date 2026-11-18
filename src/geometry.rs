@@ -181,14 +181,110 @@ pub enum Persist {
 /// An app's label → [`Persist`] mapping.
 type PersistFn = dyn Fn(&str) -> Persist + Send + Sync;
 
-/// Plugin-managed state: the loaded cache plus the mapping and filename it was built with.
-/// `aliases` maps a live window's label to the key its bounds save under when that differs (see
-/// [`persist_as`]); an entry lives exactly as long as that window.
+/// Plugin-managed state: the store's filename and its [`Recorder`].
 struct GeometryState {
     filename: String,
+    recorder: Mutex<Recorder>,
+}
+
+/// What the plugin records, driven by window events and free of Tauri, so its response to any
+/// order of events is testable. The plugin's closures only snapshot windows and hand the rects
+/// here.
+///
+/// - `aliases` maps a live window's label to the key its bounds save under when that differs (see
+///   [`persist_as`]); an entry lives exactly as long as that window.
+/// - `gates` holds a restoring window's pre-restore rect.
+///
+/// **Footgun — the creation gate.** Don't record a restoring window at its creation size. tao
+/// applies `set_size` asynchronously, and the restore's first move delivers `Moved`/`Resized`
+/// while the window is still at the builder's default size; no event fires when the resize lands.
+/// Recording those snapshots would cache the default over the saved rect. The resize can't be
+/// waited on either: it lands after a main-queue block queued behind it. So [`Recorder::arm`]
+/// keeps the pre-restore rect, snapshots still at that size are skipped, and the first one at any
+/// other size (the restore landed, or the user resized) clears it. Meanwhile the cache keeps the
+/// saved rect.
+struct Recorder {
     persist: Box<PersistFn>,
-    cache: Mutex<HashMap<String, Rect>>,
-    aliases: Mutex<HashMap<String, String>>,
+    cache: HashMap<String, Rect>,
+    aliases: HashMap<String, String>,
+    gates: HashMap<String, Rect>,
+}
+
+impl Recorder {
+    fn new(persist: Box<PersistFn>, cache: HashMap<String, Rect>) -> Self {
+        Self {
+            persist,
+            cache,
+            aliases: HashMap::new(),
+            gates: HashMap::new(),
+        }
+    }
+
+    fn resolve(&self, label: &str) -> Persist {
+        resolve(&*self.persist, &self.aliases, label)
+    }
+
+    /// How a newly ready window persists, and the rect to restore it to, if one is stored.
+    fn ready(&self, label: &str) -> (Persist, Option<Rect>) {
+        let persist = self.resolve(label);
+        let saved = match &persist {
+            Persist::Bounds(key) | Persist::SizeOnly(key) => self.cache.get(key).copied(),
+            Persist::Skip => None,
+        };
+        (persist, saved)
+    }
+
+    /// Arm `label`'s creation gate after a restore: `before` is the window's rect before it,
+    /// `fitted` what the restore applied. No gate when there was no restore (`fitted` is `None`)
+    /// or it doesn't change the size.
+    fn arm(&mut self, label: &str, before: Option<Rect>, fitted: Option<Rect>) {
+        match before.zip(fitted).filter(|(b, f)| !same_size(*b, *f)) {
+            Some((b, _)) => self.gates.insert(label.to_string(), b),
+            None => self.gates.remove(label),
+        };
+    }
+
+    /// A `Moved` or `Resized` snapshot of live window `label`.
+    fn moved(&mut self, label: &str, rect: Rect) {
+        if let Some(before) = self.gates.get(label) {
+            if same_size(*before, rect) {
+                return;
+            }
+            self.gates.remove(label);
+        }
+        let persist = self.resolve(label);
+        record(&mut self.cache, &persist, rect);
+    }
+
+    /// Window `label` is gone: its alias and gate go with it, so a later window on the label
+    /// starts clean.
+    fn destroyed(&mut self, label: &str) {
+        self.aliases.remove(label);
+        self.gates.remove(label);
+    }
+
+    /// See [`persist_as`].
+    fn persist_as(&mut self, label: &str, key: &str, live: bool) {
+        rekey(&mut self.cache, &mut self.aliases, label, key, live);
+    }
+
+    /// Re-record the live windows' snapshots that [`flushes`] admits.
+    fn flush(&mut self, fresh: Vec<(String, Rect)>) {
+        for (label, rect) in fresh {
+            let persist = self.resolve(&label);
+            if flushes(&persist) {
+                record(&mut self.cache, &persist, rect);
+            }
+        }
+    }
+}
+
+impl GeometryState {
+    fn recorder(&self) -> std::sync::MutexGuard<'_, Recorder> {
+        self.recorder
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 /// How window `label` persists: never for a window shell-core owns ([`structurally_excluded`]),
@@ -289,15 +385,7 @@ pub fn persist_as<R: Runtime>(app: &AppHandle<R>, label: &str, key: &str) {
         return;
     };
     let live = app.get_window(label).is_some();
-    let mut cache = state
-        .cache
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let mut aliases = state
-        .aliases
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    rekey(&mut cache, &mut aliases, label, key, live);
+    state.recorder().persist_as(label, key, live);
 }
 
 /// The windows shell-core owns that must never persist bounds: the home surface and the window
@@ -521,21 +609,9 @@ fn flush<R: Runtime>(app: &AppHandle<R>) {
         .collect();
 
     let payload = {
-        let mut cache = state
-            .cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let aliases = state
-            .aliases
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        for (label, rect) in fresh {
-            let persist = resolve(&*state.persist, &aliases, &label);
-            if flushes(&persist) {
-                record(&mut cache, &persist, rect);
-            }
-        }
-        encode(&cache)
+        let mut recorder = state.recorder();
+        recorder.flush(fresh);
+        encode(&recorder.cache)
     };
 
     let Ok(dir) = app.path().app_config_dir() else {
@@ -578,54 +654,27 @@ fn build<R: Runtime>(filename: String, persist: Box<PersistFn>) -> TauriPlugin<R
                 .unwrap_or_default();
             app.manage(GeometryState {
                 filename: filename.clone(),
-                persist: persist.take().expect("the geometry plugin is set up once"),
-                cache: Mutex::new(cache),
-                aliases: Mutex::new(HashMap::new()),
+                recorder: Mutex::new(Recorder::new(
+                    persist.take().expect("the geometry plugin is set up once"),
+                    cache,
+                )),
             });
             Ok(())
         })
         .on_window_ready(|window| {
             let label = window.label().to_string();
             let state = window.state::<GeometryState>();
-            let persist = resolve(
-                &*state.persist,
-                &state
-                    .aliases
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner),
-                &label,
-            );
-            let (key, size_only) = match &persist {
-                Persist::Bounds(key) => (key.clone(), false),
-                Persist::SizeOnly(key) => (key.clone(), true),
-                Persist::Skip => return,
-            };
-
-            let saved = state
-                .cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .get(&key)
-                .copied();
-
-            // FOOTGUN: don't record a restoring window at its creation size. tao applies `set_size`
-            // asynchronously, and the restore's first move delivers `Moved`/`Resized` while the
-            // window is still at the builder's default size; no event fires when the resize lands.
-            // Recording those snapshots would cache the default over the saved rect. The resize
-            // can't be waited on either — it
-            // lands after a main-queue block queued behind it. So `creation` holds the pre-restore
-            // rect, snapshots still at that size are skipped, and the first one at any other size
-            // (the restore landed, or the user resized) clears it. Meanwhile the cache keeps the
-            // saved rect. `None` when nothing is restored or the restore doesn't change the size.
-            let creation = Mutex::new(saved.and_then(|rect| {
-                let before = snapshot(&window);
-                let fitted = if size_only {
-                    restore_size(&window, rect)
-                } else {
-                    restore(&window, rect)
-                };
-                before.filter(|b| !same_size(*b, fitted))
-            }));
+            let (persist, saved) = state.recorder().ready(&label);
+            if persist == Persist::Skip {
+                return;
+            }
+            // The restore runs outside the lock: its Tauri calls marshal to the main loop.
+            let before = saved.and_then(|_| snapshot(&window));
+            let fitted = saved.map(|rect| match persist {
+                Persist::SizeOnly(_) => restore_size(&window, rect),
+                _ => restore(&window, rect),
+            });
+            state.recorder().arm(&label, before, fitted);
 
             // Snapshot on move/resize so a window's bounds survive even when the window itself is
             // closed mid-session: by the time `flush` runs on `RunEvent::Exit`, a closed window is
@@ -638,44 +687,17 @@ fn build<R: Runtime>(filename: String, persist: Box<PersistFn>) -> TauriPlugin<R
             // or crash — only against a window closing before a normal one.)
             let tracked = window.clone();
             window.on_window_event(move |event| {
-                if matches!(event, WindowEvent::Destroyed) {
-                    // The alias belongs to this window; a later window on the label starts clean.
-                    tracked
-                        .state::<GeometryState>()
-                        .aliases
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .remove(tracked.label());
-                    return;
-                }
-                if !matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
-                    return;
-                }
-                let Some(rect) = snapshot(&tracked) else {
-                    return;
-                };
-                {
-                    let mut creation = creation
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    if let Some(before) = *creation {
-                        if same_size(before, rect) {
-                            return;
-                        }
-                        *creation = None;
-                    }
-                }
                 let state = tracked.state::<GeometryState>();
-                let mut cache = state
-                    .cache
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let aliases = state
-                    .aliases
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let persist = resolve(&*state.persist, &aliases, tracked.label());
-                record(&mut cache, &persist, rect);
+                match event {
+                    WindowEvent::Destroyed => state.recorder().destroyed(tracked.label()),
+                    WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                        // Snapshot before taking the lock, as `flush` does.
+                        if let Some(rect) = snapshot(&tracked) {
+                            state.recorder().moved(tracked.label(), rect);
+                        }
+                    }
+                    _ => {}
+                }
             });
         })
         .on_event(|app, event| {
@@ -1012,5 +1034,191 @@ mod tests {
             restored(saved, rect(100.0, 80.0, 640.0, 560.0), false, Some(work)),
             fit_restored_size(saved, Some(work))
         );
+    }
+}
+
+#[cfg(test)]
+mod recorder_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    fn by_kind(label: &str) -> Persist {
+        match label {
+            "gone" => Persist::Skip,
+            l if l.starts_with("draft-") => Persist::SizeOnly("draft".to_string()),
+            l => Persist::Bounds(l.to_string()),
+        }
+    }
+
+    fn recorder(cache: &[(&str, Rect)]) -> Recorder {
+        Recorder::new(
+            Box::new(by_kind),
+            cache.iter().map(|(k, r)| (k.to_string(), *r)).collect(),
+        )
+    }
+
+    /// 06e3c8e / 43919fb: tao's resize lands after the restore's first move, so the events at the
+    /// creation size must not overwrite the saved rect.
+    #[test]
+    fn a_restoring_window_keeps_its_saved_rect_through_the_creation_size_events() {
+        let saved = rect(10.0, 20.0, 800.0, 600.0);
+        let mut r = recorder(&[("work", saved)]);
+        let (persist, got) = r.ready("work");
+        assert_eq!(
+            (persist, got),
+            (Persist::Bounds("work".into()), Some(saved))
+        );
+        r.arm("work", Some(rect(0.0, 0.0, 400.0, 300.0)), got);
+
+        r.moved("work", rect(10.0, 20.0, 400.0, 300.0));
+        assert_eq!(r.cache["work"], saved);
+        r.moved("work", rect(10.0, 20.0, 800.0, 600.0));
+        assert_eq!(r.cache["work"], saved);
+        r.moved("work", rect(10.0, 20.0, 800.0, 600.0));
+        assert_eq!(r.cache["work"], saved);
+        // The gate is spent: a later move to the creation size is the user's and records.
+        r.moved("work", rect(10.0, 20.0, 400.0, 300.0));
+        assert_eq!(r.cache["work"], rect(10.0, 20.0, 400.0, 300.0));
+    }
+
+    #[derive(Debug, Clone)]
+    enum Op {
+        Ready {
+            label: &'static str,
+            before: Rect,
+        },
+        Moved {
+            label: &'static str,
+            rect: Rect,
+        },
+        PersistAs {
+            label: &'static str,
+            key: &'static str,
+        },
+        Destroyed {
+            label: &'static str,
+        },
+        Flush {
+            rects: Vec<Rect>,
+        },
+    }
+
+    const LABELS: [&str; 5] = ["work", "side", "draft-1", "draft-2", "gone"];
+    const KEYS: [&str; 5] = ["work", "side", "draft", "job", "gig"];
+
+    fn any_rect() -> impl Strategy<Value = Rect> {
+        (
+            prop::sample::select(vec![0.0, 50.0]),
+            prop::sample::select(vec![(400.0, 300.0), (800.0, 600.0), (1000.0, 700.0)]),
+        )
+            .prop_map(|(xy, (w, h))| rect(xy, xy, w, h))
+    }
+
+    fn op() -> impl Strategy<Value = Op> {
+        let label = prop::sample::select(LABELS.to_vec());
+        prop_oneof![
+            (label.clone(), any_rect()).prop_map(|(label, before)| Op::Ready { label, before }),
+            (label.clone(), any_rect()).prop_map(|(label, rect)| Op::Moved { label, rect }),
+            (label.clone(), prop::sample::select(vec!["job", "gig"]))
+                .prop_map(|(label, key)| Op::PersistAs { label, key }),
+            label.prop_map(|label| Op::Destroyed { label }),
+            prop::collection::vec(any_rect(), LABELS.len()).prop_map(|rects| Op::Flush { rects }),
+        ]
+    }
+
+    fn saved_cache() -> impl Strategy<Value = Vec<(&'static str, Rect)>> {
+        prop::collection::vec(
+            (
+                prop::sample::select(vec!["work", "side", "draft"]),
+                any_rect(),
+            ),
+            0..3,
+        )
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        /// Any order of window events keeps the recorder's invariants: a Skip window writes
+        /// nothing, the exit flush leaves shared SizeOnly sizes alone (84aea15), an armed gate
+        /// drops creation-size snapshots (06e3c8e), and Destroyed clears the window's alias and
+        /// gate.
+        #[test]
+        fn event_sequences_keep_the_recorder_invariants(
+            cache in saved_cache(),
+            ops in prop::collection::vec(op(), 1..24),
+        ) {
+            let mut r = recorder(&cache);
+            let mut live: HashSet<&str> = HashSet::new();
+            for op in ops {
+                let before_cache = r.cache.clone();
+                match op {
+                    Op::Ready { label, before } => {
+                        if !live.insert(label) {
+                            continue;
+                        }
+                        let (persist, saved) = r.ready(label);
+                        if persist == Persist::Skip {
+                            continue;
+                        }
+                        r.arm(label, saved.map(|_| before), saved);
+                        prop_assert_eq!(&r.cache, &before_cache, "ready writes nothing");
+                        if let Some(gate) = r.gates.get(label) {
+                            prop_assert!(!same_size(*gate, saved.unwrap()));
+                        }
+                    }
+                    Op::Moved { label, rect } => {
+                        if !live.contains(label) {
+                            continue;
+                        }
+                        let gate = r.gates.get(label).copied();
+                        let persist = r.resolve(label);
+                        r.moved(label, rect);
+                        match (gate, &persist) {
+                            (Some(g), _) if same_size(g, rect) => {
+                                prop_assert_eq!(&r.cache, &before_cache, "gated snapshot recorded");
+                                prop_assert_eq!(r.gates.get(label), Some(&g));
+                            }
+                            (_, Persist::Skip) => prop_assert_eq!(&r.cache, &before_cache),
+                            (_, Persist::Bounds(k) | Persist::SizeOnly(k)) => {
+                                prop_assert_eq!(r.cache.get(k), Some(&rect));
+                                prop_assert!(!r.gates.contains_key(label));
+                            }
+                        }
+                    }
+                    Op::PersistAs { label, key } => {
+                        r.persist_as(label, key, live.contains(label));
+                    }
+                    Op::Destroyed { label } => {
+                        live.remove(label);
+                        r.destroyed(label);
+                        prop_assert!(!r.aliases.contains_key(label));
+                        prop_assert!(!r.gates.contains_key(label));
+                    }
+                    Op::Flush { rects } => {
+                        let fresh = LABELS
+                            .iter()
+                            .zip(rects)
+                            .filter(|(l, _)| live.contains(*l))
+                            .map(|(l, rect)| (l.to_string(), rect))
+                            .collect();
+                        r.flush(fresh);
+                        prop_assert_eq!(r.cache.get("draft"), before_cache.get("draft"));
+                    }
+                }
+                for k in r.cache.keys() {
+                    prop_assert!(KEYS.contains(&k.as_str()), "{k:?} written");
+                }
+            }
+        }
     }
 }
