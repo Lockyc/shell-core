@@ -87,6 +87,7 @@ git clone https://github.com/lockyc/shell-core && cd shell-core
 just gate       # zero-dep + fmt check + clippy + tests
 just test       # the test suite
 just zero-dep   # prove the default feature set still pulls no dependencies
+just mutants    # mutation-test the pure decision modules (occasional; mutants-diff for a change)
 ```
 
 Conventions: [CLAUDE.md](CLAUDE.md).
