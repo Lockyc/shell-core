@@ -416,6 +416,84 @@ fn install_marks_a_dirty_build() {
     assert_eq!(install_and_read_stamp(&f), format!("{head}-dirty"));
 }
 
+/// The running copy quits, and is gone to LaunchServices too, before the bundle is replaced: the
+/// app flushes its geometry on exit (d378cb6), and LaunchServices drops it some time after its
+/// process exits (40e3cc6). The stubbed process lives for 3 `pgrep` polls, then LaunchServices
+/// lists it for 2 more; every stub logs its call and whether the old bundle is still in place.
+#[test]
+fn install_waits_for_the_quit_before_replacing_the_bundle() {
+    let f = Fixture::new("install-wait");
+    let log = f.root.join("calls.log");
+    let dest = f.root.join("Applications/demo.app");
+    std::fs::create_dir_all(dest.join("Contents")).unwrap();
+    std::fs::write(dest.join("old"), "").unwrap();
+    let src = f.root.join("src/demo.app");
+    std::fs::create_dir_all(src.join("Contents")).unwrap();
+    let logs = |name: &str, then: &str| {
+        format!(
+            "#!/bin/sh\n\
+             n=$(($(grep -c '^{name}' '{log}' 2>/dev/null || true) + 1))\n\
+             if [ -e '{old}' ]; then b=old; else b=new; fi\n\
+             echo \"{name} $n $b\" >> '{log}'\n\
+             {then}\n",
+            log = log.display(),
+            old = dest.join("old").display(),
+        )
+    };
+    write_exec(&f.stub_bin.join("osascript"), &logs("osascript", "exit 0"));
+    write_exec(&f.stub_bin.join("pkill"), &logs("pkill", "exit 1"));
+    write_exec(
+        &f.stub_bin.join("pgrep"),
+        &logs("pgrep", "[ \"$n\" -le 3 ] && exit 0; exit 1"),
+    );
+    write_exec(
+        &f.stub_bin.join("lsappinfo"),
+        &logs(
+            "lsappinfo",
+            "[ \"$n\" -le 2 ] && echo 'ASN:0x0-0x1:'; exit 0",
+        ),
+    );
+    write_exec(&f.stub_bin.join("open"), &logs("open", "exit 0"));
+    write_exec(&f.stub_bin.join("security"), "#!/bin/sh\nexit 0\n");
+
+    let out = f
+        .script("install-app.sh", &[src.to_str().unwrap()])
+        .env("APP_DEST", &dest)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "install-app.sh: {}",
+        text(&out.stderr)
+    );
+    assert!(!dest.join("old").exists(), "the bundle was not replaced");
+
+    let calls = std::fs::read_to_string(&log).unwrap();
+    let calls: Vec<&str> = calls.lines().collect();
+    assert_eq!(
+        calls,
+        [
+            "osascript 1 old",
+            // Alive: pgrep short-circuits the LaunchServices probe.
+            "pgrep 1 old",
+            "pgrep 2 old",
+            "pgrep 3 old",
+            // Exited, but LaunchServices still lists it.
+            "pgrep 4 old",
+            "lsappinfo 1 old",
+            "pgrep 5 old",
+            "lsappinfo 2 old",
+            // Gone: only now the kill (a no-op by now), and the bundle is still the old one.
+            "pgrep 6 old",
+            "lsappinfo 3 old",
+            "pkill 1 old",
+            "pgrep 7 old",
+            "lsappinfo 4 old",
+        ],
+        "install-app.sh's quit-wait order"
+    );
+}
+
 /// An app whose cores live under another owner sets CORE_PARENT in tooling.env; `dev` then looks
 /// there, not at `..`.
 #[test]
