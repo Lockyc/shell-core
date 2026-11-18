@@ -49,6 +49,18 @@ zero-dep:
     fi
     echo "✓ default features are zero-dependency"
 
+# Mutation-test the pure decision modules (occasional; one rebuild per mutant). Args narrow it: `just mutants --re route`
+[group("check")]
+mutants *args:
+    cargo mutants -o target --features runtime --cargo-test-arg=--lib -f src/windows/plan.rs -f src/windows/set.rs -f src/menu.rs -f src/web/content.rs -f src/web/escape.rs -f src/downloads/list.rs -f src/geometry.rs {{args}}
+
+# Mutation-test only the lines changed since `base` (after an agent's change)
+[group("check")]
+mutants-diff base="origin/main":
+    @mkdir -p target
+    git diff {{base}} > target/mutants.diff
+    cargo mutants -o target --features runtime --cargo-test-arg=--lib --in-diff target/mutants.diff
+
 # Non-mutating pre-merge gate: zero-dep, rustfmt check, clippy, and the test suite.
 [group("check")]
 gate: zero-dep
