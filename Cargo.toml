@@ -59,7 +59,8 @@ runtime = [
 # dependency, per the note above) — but shell-core must also build and gate-check standalone (`just
 # gate` here, `cargo build -p shell-core --features runtime`), with no consumer's Cargo.toml around
 # to unify features from, so it has to request it itself.
-tauri = { version = "2", features = ["unstable", "macos-private-api"], optional = true }
+# 2.12 is the first with `Builder::activate_ignoring_other_apps`, which `focus` needs.
+tauri = { version = "2.12", features = ["unstable", "macos-private-api"], optional = true }
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-process = { version = "2", optional = true }
 # JSON for the window-geometry store (src/geometry.rs) and the home/detach page payloads, a dep

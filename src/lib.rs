@@ -110,6 +110,10 @@ pub mod compositing;
 #[cfg(feature = "runtime")]
 pub mod watch;
 
+/// Launching an app without taking the operator's focus (`SHELL_CORE_UNFOCUSED=1`).
+#[cfg(any(feature = "banner", feature = "geometry"))]
+pub mod focus;
+
 /// Native macOS banners that surface the tab that raised them when clicked.
 #[cfg(feature = "banner")]
 pub mod banner;
@@ -195,6 +199,7 @@ mod runtime {
     /// each window's size/position in points, keyed per-config-file via
     /// [`crate::geometry::geometry_filename`]), the updater, the process plugin (for the
     /// updater's relaunch), and [`crate::edit_keys`]. Returns the builder for continued chaining.
+    /// It reads [`crate::focus::UNFOCUSED_ENV`], so an app launched with it never activates.
     ///
     /// `config_path` is the app's resolved config path — `Some(path)` scopes the geometry file to
     /// it; `None` uses an unscoped default name.
@@ -219,6 +224,9 @@ mod runtime {
                 Ok(())
             })
             .build();
+        // Launched unfocused, the app activates only if no other app is active: never, in practice.
+        #[cfg(target_os = "macos")]
+        let builder = builder.activate_ignoring_other_apps(crate::focus::focused());
         let builder = builder
             .plugin(edit_keys)
             .plugin(crate::geometry::plugin(filename, skip_labels))

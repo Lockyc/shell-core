@@ -37,12 +37,11 @@ pub type OnClick = dyn Fn(&AppHandle, &Click) + Send + Sync;
 /// Where [`set_trace`] sends each step.
 pub type Trace = dyn Fn(&str) + Send + Sync;
 
-/// Bring window `label` forward, unminimized, activating the app. A window closed since does
+/// Bring window `label` forward ([`crate::focus::bring_forward`]). A window closed since does
 /// nothing.
 pub fn raise(app: &AppHandle, label: &str) {
     if let Some(win) = app.get_window(label) {
-        let _ = win.unminimize();
-        let _ = win.set_focus();
+        crate::focus::bring_forward(&win);
     }
 }
 

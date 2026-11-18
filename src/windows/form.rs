@@ -151,7 +151,7 @@ pub fn open_form<R: tauri::Runtime>(
     if let Some(window) = app.get_window(FORM_LABEL) {
         let _ = app.emit_to(FORM_LABEL, REFRESH_EVENT, payload);
         let _ = window.set_title(title);
-        let _ = window.set_focus();
+        crate::focus::bring_forward(&window);
         return;
     }
 
@@ -169,6 +169,7 @@ pub fn open_form<R: tauri::Runtime>(
                 "__SHELL_WINDOW_FORM__",
                 &payload,
             ))
+            .focused(crate::focus::focused())
             .build();
     let Ok(window) = built else {
         finish(FormResult::Cancel);

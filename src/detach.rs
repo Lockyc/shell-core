@@ -194,6 +194,7 @@ where
             "__SHELL_DETACH__",
             &payload,
         ))
+        .focused(crate::focus::focused())
         .build()?;
 
     // The size the window ACTUALLY has, which is `spec`'s only when this tab has no remembered

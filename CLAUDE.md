@@ -50,6 +50,9 @@ Two rules span every module below:
     action:** delete the parameter and the plumbing above, drop the argument at each app's call
     site in that same lockstep re-pin, and remove the `skip_labels` mentions here and in the
     README.
+- **`focus`** (`banner` or `geometry`) — `SHELL_CORE_UNFOCUSED=1` launches an app that never
+  activates. Every window builder takes `.focused(focus::focused())` and every bring-forward goes
+  through `focus::bring_forward`, never a bare `set_focus`, in shell-core and in each app.
 - **`geometry`** (`geometry`, in `runtime`) — per-window size/position persistence, every app; the
   app hands it a resolved config path, or its own label → `Persist`
   mapping (`plugin_keyed`). `src/geometry.rs`.
@@ -117,7 +120,7 @@ Two rules span every module below:
 
 This is the shared reasoning for *why a Tauri app command needs (or doesn't need) a per-caller
 gate*. It lived only in lector's `commands.rs` header; it belongs here so a future sibling app finds
-it instead of copying curator's redundant gate. **Verified against the pinned `tauri = 2.11.5`
+it instead of copying curator's redundant gate. **Verified against the pinned `tauri = 2.12.6`
 vendored source.**
 
 - **A crate's own `#[tauri::command]`s are gated by *origin*, not by a hand-rolled label check** —
@@ -138,7 +141,7 @@ vendored source.**
   bundled** HTML — shell-core's, or the app's own via `DetachSpec::page` (no untrusted content), so they need no gate. A future third local surface
   hosting anything user-supplied would need an explicit gate.
 - **curator's `require_chrome` is therefore redundant belt-and-braces** (curator meets the
-  precondition exactly: tauri 2.11.5, and its capability grants only `core:*`/`updater`/`process` —
+  precondition exactly: tauri 2.12.6, and its capability grants only `core:*`/`updater`/`process` —
   zero app-command permissions). It can stay as defense-in-depth or be narrowed to a
   local-surface-only screen — a **security-sensitive judgment call left to the maintainer**, not a
   mechanical cleanup.

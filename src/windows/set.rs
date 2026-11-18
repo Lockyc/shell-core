@@ -510,8 +510,7 @@ impl WindowSet {
                 Effect::Build(slot) => self.build(app, &slot),
                 Effect::Focus(label) => {
                     if let Some(w) = app.get_window(&label) {
-                        let _ = w.unminimize();
-                        let _ = w.set_focus();
+                        crate::focus::bring_forward(&w);
                     }
                 }
                 Effect::Close(label) => {

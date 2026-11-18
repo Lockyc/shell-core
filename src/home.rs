@@ -156,7 +156,7 @@ pub fn show_home<R: tauri::Runtime>(
     if let Some(window) = app.get_window(HOME_LABEL) {
         use tauri::Emitter;
         let _ = app.emit_to(HOME_LABEL, HOME_REFRESH_EVENT, payload);
-        let _ = window.set_focus();
+        crate::focus::bring_forward(&window);
         return Ok(());
     }
 
@@ -171,6 +171,7 @@ pub fn show_home<R: tauri::Runtime>(
         .inner_size(560.0, 480.0)
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .initialization_script(payload_init_script("__SHELL_HOME__", &payload))
+        .focused(crate::focus::focused())
         .build()?;
     Ok(())
 }
