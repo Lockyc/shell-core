@@ -910,3 +910,196 @@ mod tests {
         assert!(e.iter().all(|e| e.open));
     }
 }
+
+#[cfg(test)]
+mod model {
+    //! Random operation sequences over [`SetState`], with a runtime stand-in that performs each
+    //! [`Effect`] the way [`WindowSet::perform`] does: a built window is born focused and a
+    //! closed one delivers `Destroyed`.
+
+    use std::collections::HashSet;
+
+    use proptest::prelude::*;
+
+    use super::*;
+    use crate::windows::plan::is_shell_label;
+
+    const TITLES: [&str; 6] = ["a", "b", "a b", "a-b", "a:b", "shell home"];
+
+    #[derive(Debug, Clone)]
+    enum Op {
+        Apply(Vec<(usize, bool)>),
+        OpenOrFocus(usize),
+        UserClose(usize),
+        Focus(usize),
+        Rename(usize, usize),
+        Delete(usize),
+        MarkQuitting,
+        SetDetached(usize),
+    }
+
+    fn decls() -> impl Strategy<Value = Vec<(usize, bool)>> {
+        // Distinct titles: a config never declares one twice.
+        prop::sample::subsequence((0..TITLES.len()).collect::<Vec<_>>(), 0..=TITLES.len())
+            .prop_shuffle()
+            .prop_flat_map(|idx| {
+                let n = idx.len();
+                (Just(idx), prop::collection::vec(any::<bool>(), n))
+            })
+            .prop_map(|(idx, open)| idx.into_iter().zip(open).collect())
+    }
+
+    fn to_decls(spec: &[(usize, bool)]) -> Vec<WindowDecl> {
+        spec.iter()
+            .map(|&(i, open_on_start)| WindowDecl {
+                title: TITLES[i].into(),
+                colour: None,
+                width: 800.0,
+                height: 600.0,
+                open_on_start,
+            })
+            .collect()
+    }
+
+    fn op() -> impl Strategy<Value = Op> {
+        let i = 0..8usize;
+        prop_oneof![
+            decls().prop_map(Op::Apply),
+            i.clone().prop_map(Op::OpenOrFocus),
+            i.clone().prop_map(Op::UserClose),
+            i.clone().prop_map(Op::Focus),
+            (i.clone(), 0..TITLES.len()).prop_map(|(w, t)| Op::Rename(w, t)),
+            i.prop_map(Op::Delete),
+            Just(Op::MarkQuitting),
+            (0..2usize).prop_map(Op::SetDetached),
+        ]
+    }
+
+    /// The runtime stand-in: which windows exist.
+    struct World {
+        windows: HashSet<String>,
+    }
+
+    impl World {
+        fn perform(&mut self, s: &mut SetState, effects: Vec<Effect>) -> Result<(), TestCaseError> {
+            for (n, effect) in effects.iter().enumerate() {
+                match effect {
+                    Effect::Build(slot) => {
+                        prop_assert!(
+                            self.windows.insert(slot.label.clone()),
+                            "built {:?} over a live window",
+                            slot.label
+                        );
+                        let launch = s
+                            .decls
+                            .iter()
+                            .position(|d| d.title.trim() == slot.decl.title.trim())
+                            .map(|i| s.launch_label_at(i));
+                        if let Some(key) = launch.filter(|k| *k != slot.label) {
+                            prop_assert_eq!(
+                                effects.get(n + 1),
+                                Some(&Effect::PersistAs {
+                                    label: slot.label.clone(),
+                                    key
+                                }),
+                                "opened off its launch label without a PersistAs"
+                            );
+                        }
+                        // 5545ce8: a new window is born focused.
+                        s.plan_last_focused(&slot.label);
+                    }
+                    Effect::Focus(label) => prop_assert!(self.windows.contains(label)),
+                    Effect::Close(label) => {
+                        prop_assert!(self.windows.remove(label), "closed {label:?}, not live");
+                        s.plan_destroyed(label);
+                    }
+                    Effect::SetTitle { label, .. } => prop_assert!(self.windows.contains(label)),
+                    Effect::PersistAs { .. } | Effect::Retitled { .. } => {}
+                }
+            }
+            Ok(())
+        }
+    }
+
+    fn live_labels(s: &SetState) -> Vec<String> {
+        s.live.values().cloned().collect()
+    }
+
+    fn check(s: &SetState, world: &World) -> Result<(), TestCaseError> {
+        let live: HashSet<String> = s.live.values().cloned().collect();
+        prop_assert_eq!(live.len(), s.live.len(), "two titles share a live label");
+        prop_assert_eq!(&live, &world.windows);
+        for l in &live {
+            prop_assert!(!is_shell_label(l), "{l:?} is a shell label");
+        }
+        if let Some(l) = s.last_focused() {
+            prop_assert!(live.contains(&l), "last focused {l:?} is not open");
+        }
+        let entries = s.entries();
+        let titles: HashSet<_> = entries.iter().map(|e| e.title.trim()).collect();
+        prop_assert_eq!(titles.len(), entries.len(), "duplicate entry titles");
+        if let HomeSync::Show(_) = s.home_sync(true, "/c.toml") {
+            prop_assert!(!s.has_open() && !s.quitting && s.detached == 0);
+        }
+        if s.quitting {
+            prop_assert!(matches!(s.home_sync(true, "/c.toml"), HomeSync::Skip));
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn operation_sequences_keep_the_set_invariants(
+            launch in decls(),
+            ops in prop::collection::vec(op(), 0..20),
+        ) {
+            let mut s = SetState::default();
+            let mut world = World { windows: HashSet::new() };
+            let fx = s.plan_materialize(to_decls(&launch));
+            world.perform(&mut s, fx)?;
+            check(&s, &world)?;
+            for op in ops {
+                let entries = s.entries();
+                let live = live_labels(&s);
+                let fx = match op {
+                    Op::Apply(spec) => s.plan_apply(to_decls(&spec)).1,
+                    Op::OpenOrFocus(i) => match entries.get(i) {
+                        Some(e) => s.plan_open_or_focus(&e.id),
+                        None => continue,
+                    },
+                    Op::UserClose(i) => {
+                        let Some(l) = live.get(i) else { continue };
+                        world.windows.remove(l);
+                        s.plan_destroyed(l);
+                        Vec::new()
+                    }
+                    Op::Focus(i) => {
+                        let Some(l) = live.get(i) else { continue };
+                        s.plan_last_focused(l);
+                        Vec::new()
+                    }
+                    Op::Rename(i, t) => match entries.get(i) {
+                        Some(e) => s.plan_rename(&e.id, TITLES[t]).unwrap_or_default(),
+                        None => continue,
+                    },
+                    Op::Delete(i) => match entries.get(i) {
+                        Some(e) => s.plan_delete(&e.id),
+                        None => continue,
+                    },
+                    Op::MarkQuitting => {
+                        s.quitting = true;
+                        Vec::new()
+                    }
+                    Op::SetDetached(n) => {
+                        s.detached = n;
+                        Vec::new()
+                    }
+                };
+                world.perform(&mut s, fx)?;
+                check(&s, &world)?;
+            }
+        }
+    }
+}
