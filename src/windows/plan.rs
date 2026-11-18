@@ -77,16 +77,27 @@ pub fn sanitize_label(title: &str) -> String {
     }
 }
 
-/// Sanitize `base`, then suffix `-2`, `-3`, … until the label is not in `taken`.
+/// Sanitize `base`, then suffix `-2`, `-3`, … until the label is neither in `taken` nor a
+/// [`is_shell_label`]. A suffix can't move a label out from under the pop-out prefix, so a base
+/// under it first has the prefix's `:` broken to `-`.
 pub fn unique_label(base: &str, taken: &HashSet<String>) -> String {
-    let base = sanitize_label(base);
-    if !taken.contains(&base) {
-        return base;
+    let mut base = sanitize_label(base);
+    if crate::detach::is_detached_label(&base) {
+        base = sanitize_label(&base.replacen(':', "-", 1));
     }
-    (2..)
-        .map(|n| format!("{base}-{n}"))
-        .find(|c| !taken.contains(c))
+    std::iter::once(base.clone())
+        .chain((2..).map(|n| format!("{base}-{n}")))
+        .find(|c| !taken.contains(c) && !is_shell_label(c))
         .expect("unbounded range")
+}
+
+/// Whether `label` reads as one of the shell's own labels: a [`reserved_labels`] entry, a
+/// pop-out's or a downloads popup's. Matched by the predicates the shell routes on, so a window
+/// label can't pass them whatever its title.
+pub fn is_shell_label(label: &str) -> bool {
+    reserved_labels().contains(label)
+        || crate::detach::is_detached_label(label)
+        || crate::downloads::popup::is_popup_label(label)
 }
 
 /// Labels no declared window may take: the home surface's and the window form's, so a window
@@ -107,8 +118,7 @@ pub fn reserved_labels() -> HashSet<String> {
 /// labels assigned earlier. A live label already claimed by an earlier same-titled decl is not
 /// reused: the later one counts as closed.
 pub fn assign(decls: &[WindowDecl], live: &BTreeMap<String, String>) -> Vec<Slot> {
-    let mut taken = reserved_labels();
-    taken.extend(live.values().cloned());
+    let mut taken: HashSet<String> = live.values().cloned().collect();
     let mut pinned = HashSet::new();
     decls
         .iter()
@@ -373,6 +383,79 @@ mod tests {
             &live(&[("side", "side")]),
         );
         assert_eq!(ops, [WindowOp::Close("side".into())]);
+    }
+
+    mod props {
+        use super::*;
+        use crate::detach::is_detached_label;
+        use crate::downloads::popup::{is_popup_label, POPUP_WITHIN};
+        use crate::windows::form::FORM_LABEL;
+        use proptest::prelude::*;
+
+        /// Titles built from the words and separators the shell's own labels are made of, so
+        /// the generator reaches every reserved shape in a handful of cases.
+        fn title() -> impl Strategy<Value = String> {
+            let piece = prop::sample::select(vec![
+                "shell detach",
+                "shell downloads",
+                "shell home",
+                "shell window form",
+                "shell",
+                "home",
+                "detach",
+                "downloads",
+                "window",
+                "form",
+                "x",
+                ":",
+                " ",
+                "-",
+            ]);
+            prop::collection::vec(piece, 0..5).prop_map(|p| p.concat())
+        }
+
+        fn live_map() -> impl Strategy<Value = BTreeMap<String, String>> {
+            prop::collection::btree_map(title(), title(), 0..3).prop_map(|m| {
+                // A live label was itself assigned, so it is never a shell label.
+                let decls: Vec<_> = m.keys().map(|t| decl(t)).collect();
+                assign(&decls, &BTreeMap::new())
+                    .into_iter()
+                    .map(|s| (s.decl.title.trim().to_string(), s.label))
+                    .collect()
+            })
+        }
+
+        proptest! {
+            #[test]
+            fn no_title_takes_a_shell_label(
+                titles in prop::collection::vec(title(), 0..6),
+                live in live_map(),
+            ) {
+                let decls: Vec<_> = titles.iter().map(|t| decl(t)).collect();
+                let slots = assign(&decls, &live);
+                let mut seen = HashSet::new();
+                for s in &slots {
+                    let l = s.label.as_str();
+                    prop_assert!(!is_detached_label(l), "{l:?} reads as a pop-out");
+                    prop_assert!(!is_popup_label(l), "{l:?} reads as a downloads popup");
+                    prop_assert_ne!(l, HOME_LABEL);
+                    prop_assert_ne!(l, FORM_LABEL);
+                    prop_assert!(seen.insert(l), "{l:?} assigned twice");
+                }
+            }
+
+            #[test]
+            fn a_child_belongs_to_its_window(
+                t in title(),
+                within in "[a-z-]{1,12}|shell-downloads",
+            ) {
+                let w = assign(&[decl(&t)], &BTreeMap::new()).remove(0).label;
+                let child = child_label(&w, &within);
+                prop_assert_eq!(window_of(&child), Some(w.as_str()));
+                prop_assert_eq!(is_popup_label(&child), within == POPUP_WITHIN);
+                prop_assert!(!is_detached_label(&child));
+            }
+        }
     }
 
     #[test]

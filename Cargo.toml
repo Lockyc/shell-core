@@ -108,6 +108,8 @@ objc2-user-notifications = { version = "0.3", features = [
 [dev-dependencies]
 # The watch.rs hot-reload test writes a temp config dir and waits for the callback to fire.
 tempfile = "3"
+# Property tests over the label namespace and the window-set model.
+proptest = "=1.12.0"
 
 # tests/scroll_clamp.rs and tests/edit_keys.rs drive a real WKWebView on the main thread.
 [target.'cfg(target_os = "macos")'.dev-dependencies]

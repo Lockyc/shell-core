@@ -33,7 +33,7 @@ const READY_PATH: &str = "/ready";
 const REOPEN_GUARD: Duration = Duration::from_millis(400);
 
 /// The popup's within-window name ([`crate::label`]); a tab's is `tab-<hash>`, never this.
-const POPUP_WITHIN: &str = "shell-downloads";
+pub(crate) const POPUP_WITHIN: &str = "shell-downloads";
 
 /// The popup webview's label in window `window_label`: a child label, `{window}:shell-downloads`.
 fn popup_label(window_label: &str) -> String {
