@@ -915,7 +915,7 @@ mod tests {
 mod model {
     //! Random operation sequences over [`SetState`], with a runtime stand-in that performs each
     //! [`Effect`] the way [`WindowSet::perform`] does: a built window is born focused and a
-    //! closed one delivers `Destroyed`.
+    //! closed one delivers `CloseRequested`, then `Destroyed`.
 
     use std::collections::HashSet;
 
@@ -1011,7 +1011,10 @@ mod model {
                     Effect::Focus(label) => prop_assert!(self.windows.contains(label)),
                     Effect::Close(label) => {
                         prop_assert!(self.windows.remove(label), "closed {label:?}, not live");
-                        s.plan_destroyed(label);
+                        // CloseRequested, then Destroyed: the set's own close never quits the app
+                        // nor reports the window closed a second time.
+                        prop_assert!(!s.quits_on_close(label, true), "closing {label:?} quits");
+                        prop_assert!(!s.plan_destroyed(label), "{label:?} still live once closed");
                     }
                     Effect::SetTitle { label, .. } => prop_assert!(self.windows.contains(label)),
                     Effect::PersistAs { .. } | Effect::Retitled { .. } => {}
