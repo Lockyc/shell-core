@@ -205,7 +205,7 @@ mod runtime {
     /// it; `None` uses an unscoped default name.
     ///
     /// `skip_labels` are for an app's own transient windows, excluded from both save and restore.
-    /// No caller passes any — all three apps pass `&[]` — and the parameter is slated for removal
+    /// No caller passes any — every app passes `&[]` — and the parameter is slated for removal
     /// at the next API-breaking bump (the deferral is in CLAUDE.md). The home surface and the
     /// window form are excluded structurally inside [`crate::geometry`] and must not be listed
     /// here; a detached-tab window is deliberately kept (`geometry::is_excluded` says why).
