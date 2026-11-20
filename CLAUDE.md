@@ -187,3 +187,5 @@ window geometry depends on `default-features = false, features = ["banner", "geo
 `version` in `Cargo.toml` is the single source of truth. Bump it when the shared surface changes,
 then bump each consumer's pinned `rev` (in lockstep with the plugin/toolchain versions). No GitHub
 release cadence — consumers pin by rev, not by tag.
+
+What's next: [`docs/FOLLOWUPS.md`](docs/FOLLOWUPS.md).
