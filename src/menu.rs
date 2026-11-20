@@ -60,7 +60,8 @@ pub const ACCEL_FIND_IN_SIDEBAR: &str = "Shift+Cmd+KeyF";
 /// flotilla); lector's pages reload themselves on save.
 pub const ACCEL_RELOAD_TAB: &str = "Cmd+KeyR";
 
-/// Toggle Sidebar — ⌃⌘S, macOS's own Show/Hide Sidebar chord (Finder, Mail).
+/// Toggle Sidebar — ⌃⌘S, macOS's own Show/Hide Sidebar chord (Finder, Mail). chrome-core's
+/// sidebar toggle prints this chord in its tooltip; a rebind has the apps pass it to chrome-core.
 pub const ACCEL_TOGGLE_SIDEBAR: &str = "Ctrl+Cmd+KeyS";
 
 /// The family's tab-cycling accelerators — ⌘⇧[ / ⌘⇧] , the browser convention. Constants for the
