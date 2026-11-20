@@ -231,9 +231,8 @@ where
 /// child webview* (curator recreates a content webview; lector recreates its render webview) turns
 /// it into a *multi-webview* window, and Tauri exposes multi-webview windows only through
 /// `get_window`/`windows` — `get_webview_window`/`webview_windows` track single-webview windows
-/// only and return `None`/empty for them. Wiring the return off a `get_webview_window` lookup in
-/// the caller therefore silently no-op'd for those apps, so a popped-out tab could never redock
-/// (its origin row stayed stuck showing the pop-in affordance). `get_window` is correct for both
+/// only and return `None`/empty for them, so a return wired off a `get_webview_window` lookup never
+/// fires and the popped-out tab never redocks. `get_window` is correct for both
 /// that case and the single-webview case (warden's detached window hosts a re-parented *native*
 /// surface, not an added webview), and `Destroyed` is a window event regardless — so doing the one
 /// correct lookup here, in the shared owner, keeps every consumer from having to pick it (and from

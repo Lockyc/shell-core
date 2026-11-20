@@ -18,10 +18,10 @@ the `runtime` feature for the app itself:
 
 ```toml
 [build-dependencies]
-shell-core = { git = "https://github.com/lockyc/shell-core", rev = "<commit>", default-features = false }
+shell-core = { git = "https://github.com/Lockyc/shell-core", rev = "<commit>", default-features = false }
 
 [dependencies]
-shell-core = { git = "https://github.com/lockyc/shell-core", rev = "<commit>", features = ["runtime"] }
+shell-core = { git = "https://github.com/Lockyc/shell-core", rev = "<commit>", features = ["runtime"] }
 ```
 
 `build.rs` writes the release scripts into the app and stamps the build for the About box:

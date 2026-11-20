@@ -7,7 +7,7 @@ links:
 
 # shell-core — agent guide
 
-The third shared layer behind **curator**, **warden**, and **lector**, alongside
+The third shared layer behind **curator**, **warden**, **lector** and **flotilla**, alongside
 `chrome-core` (the sidebar view) and `config-core` (config primitives). shell-core owns the
 **build/release tooling** and the sliver of **Tauri runtime setup** that is byte-identical across
 those apps. Consumed by **git-rev pin** (never a path dep in git); shell-core is **main-only** — a
@@ -52,7 +52,9 @@ Two rules span every module below:
     README.
 - **`focus`** (`banner` or `geometry`) — `SHELL_CORE_UNFOCUSED=1` launches an app that never
   activates. Every window builder takes `.focused(focus::focused())` and every bring-forward goes
-  through `focus::bring_forward`, never a bare `set_focus`, in shell-core and in each app.
+  through `focus::bring_forward`, never a bare `set_focus`, in shell-core and in each app. An app
+  without `runtime` calls `focus::unfocused()` first thing in `main` (`register_plugins` does it
+  for the rest).
 - **`geometry`** (`geometry`, in `runtime`) — per-window size/position persistence, every app; the
   app hands it a resolved config path, or its own label → `Persist`
   mapping (`plugin_keyed`). `src/geometry.rs`.

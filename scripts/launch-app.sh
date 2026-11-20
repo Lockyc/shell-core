@@ -37,5 +37,11 @@ dest="${APP_DEST:-/Applications/${APP_NAME}.app}"
 
 [ -d "$dest" ] || { echo "launch-app.sh: no app bundle at $dest — install it first" >&2; exit 1; }
 
-/usr/bin/env -i /usr/bin/open "$dest"
+# SHELL_CORE_UNFOCUSED=1 (shell-core's focus module) launches it in the background, never taking
+# the operator's focus; env -i would otherwise strip the variable before the app could read it.
+if [ "${SHELL_CORE_UNFOCUSED:-}" = 1 ]; then
+	/usr/bin/env -i /usr/bin/open -g -j --env SHELL_CORE_UNFOCUSED=1 "$dest"
+else
+	/usr/bin/env -i /usr/bin/open "$dest"
+fi
 echo "launch-app.sh: launched $dest with a clean GUI environment"

@@ -103,8 +103,8 @@ fn is_auth_host(host: &str) -> bool {
 ///
 /// "Same site" is the tab's **own host** (`www.`-insensitive), not its whole registrable domain.
 /// A shared provider domain hosts many *unrelated services* — `meet.google.com` and
-/// `docs.google.com` are no more the Chat tab's own flow than an outside link is, and treating
-/// them as such navigated the tab away from Chat instead of opening them in the browser. The one
+/// `docs.google.com` are no more the Chat tab's own flow than an outside link is, so they open in
+/// the browser rather than navigating the tab. The one
 /// carve-out is an auth host on the same registrable domain ([`is_auth_host`]), which is the
 /// sign-in popup this test exists to keep in-app.
 pub fn same_site(home_url: &str, target: &url::Url) -> bool {

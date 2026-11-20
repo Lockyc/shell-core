@@ -1,4 +1,4 @@
-//! Config-file hot-reload watcher shared by curator and lector.
+//! Config-file hot-reload watcher shared by curator, lector and flotilla.
 //!
 //! Watches the config file's **parent directory** (atomic-save editors write a temp file + rename,
 //! replacing the inode — a single-file watch would silently break) and matches events by **file

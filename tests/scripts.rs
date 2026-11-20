@@ -15,6 +15,10 @@ fn scripts_are_embedded_and_generic() {
         assert!(!body.contains("warden"), "{label} script leaks 'warden'");
         assert!(!body.contains("curator"), "{label} script leaks 'curator'");
         assert!(!body.contains("lector"), "{label} script leaks 'lector'");
+        assert!(
+            !body.contains("flotilla"),
+            "{label} script leaks 'flotilla'"
+        );
     }
 }
 

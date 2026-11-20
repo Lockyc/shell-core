@@ -80,9 +80,9 @@ pub struct ContentHooks {
 /// marketing version below it does not decay.
 const SAFARI_WEBKIT_TOKEN: &str = "605.1.15";
 /// Used when [`installed_safari_version`] can't read a version — Safari removed, an unreadable
-/// bundle, an unparseable string. Only a floor: a stale fallback behaves exactly like the old
-/// pinned UA did (an "unsupported browser" banner), which is the failure this derivation removes,
-/// so bump it when you notice, but the normal path never reads it.
+/// bundle, an unparseable string. Only a floor: a stale fallback earns sites' "unsupported
+/// browser" banner, which reading the installed version avoids, so bump it when you notice, but the
+/// normal path never reads it.
 const SAFARI_VERSION_FALLBACK: &str = "27.0";
 
 /// Desktop UA for content webviews, and for any app webview hosting a Google service outside

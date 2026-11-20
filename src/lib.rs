@@ -1,4 +1,4 @@
-//! Shared Tauri app-shell + release-tooling layer for the curator, warden, and lector apps (and
+//! Shared Tauri app-shell + release-tooling layer for the curator, warden, lector and flotilla apps (and
 //! future siblings). Consumed by git-rev pin, like `chrome-core` (the sidebar view) and
 //! `config-core` (config primitives). Two concerns, split by Cargo feature so a build-dependency
 //! stays light:
@@ -15,8 +15,8 @@
 //!   custom protocols.
 //!   [`geometry`] persists each window's size/position — in AppKit points, clamped to the target
 //!   monitor's work area on restore, and never recorded while a window is fullscreen or minimized.
-//!   It replaces `tauri-plugin-window-state`, whose physical-pixel model is wrong across monitors
-//!   of differing scale factor: physical is points × the occupied screen's scale factor, so a rect
+//!   Points, not `tauri-plugin-window-state`'s physical pixels, which are wrong across monitors of
+//!   differing scale factor: physical is points × the occupied screen's scale factor, so a rect
 //!   saved on a 2x display and applied on a 1x one is out by the ratio. Given an app's resolved
 //!   config path it derives `.window-geometry-{fnv1a_64(canonicalize(path)):016x}.json`
 //!   ([`geometry_filename`], over [`config_scoped_filename`] — the canonicalize→hash→format step,
@@ -28,9 +28,9 @@
 //!   stranded invisible. [`detach`] is the "pop a tab out into its own temporary window" lifecycle —
 //!   the label scheme + banner-shell window a detached tab gets; the app owns moving the tab's actual
 //!   content and all origin bookkeeping. [`compositing`] is the hole-punch content-webview placement
-//!   shared by curator + lector (the [`compositing::HoleRect`] rect + [`compositing::layout_webviews`]);
+//!   shared by curator, lector and flotilla (the [`compositing::HoleRect`] rect + [`compositing::layout_webviews`]);
 //!   warden composites a native `NSView` through its own geometry, so it is not a consumer.
-//!   [`watch`] is the config-file hot-reload watcher for curator + lector (parent-dir watch, file-name
+//!   [`watch`] is the config-file hot-reload watcher for curator, lector and flotilla (parent-dir watch, file-name
 //!   match, echo-swallow via a config-agnostic seam — the app parses); warden's own watcher parses
 //!   inside + drives a deeper reconcile, so it keeps its own. Deliberately NOT shared: IPC fan-out
 //!   (per-app event shapes) and warden's native compositing/registry. The per-caller

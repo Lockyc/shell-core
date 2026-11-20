@@ -15,7 +15,9 @@ static UNFOCUSED: OnceLock<bool> = OnceLock::new();
 
 /// Whether this process was launched unfocused. The first call reads [`UNFOCUSED_ENV`] and removes
 /// it from the environment, so processes the app spawns (warden's shells, and every app launched
-/// from them) start ordinarily; [`crate::register_plugins`] makes that first call on the main
+/// from them) start ordinarily. An app without the `runtime` feature must call it first thing in
+/// `main`, before building Tauri (removing an env var is safe only before other threads read the
+/// environment); [`crate::register_plugins`] makes that first call on the main
 /// thread, before the app starts any thread of its own.
 pub fn unfocused() -> bool {
     *UNFOCUSED.get_or_init(|| {
