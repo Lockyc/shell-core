@@ -63,18 +63,37 @@ pub fn initial_hole(win_w: f64, win_h: f64) -> HoleRect {
     }
 }
 
-/// Position every content webview to fill the reported hole. The chrome is the window's main
-/// webview (auto-sized to the window as its content view; its label IS the window label), so it's
-/// skipped — only the `add_child` content webviews are placed. All loaded tabs stack in the same
-/// hole; the app raises the active one, `load_on_open` tabs sit live behind it. The downloads
-/// popup, also a child, keeps its own place.
+/// Whether webview `label`, in the window labelled `window_label`, is a content webview: not the
+/// window's main webview (its chrome, whose label IS the window's) and not the shell's downloads
+/// popup. The one test for which of a window's webviews hold content — layout, page teardown on
+/// window close and page teardown at exit all ask it.
+pub(crate) fn is_content_webview(label: &str, window_label: &str) -> bool {
+    label != window_label && !crate::downloads::popup::is_popup_label(label)
+}
+
+/// Position every content webview ([`is_content_webview`]) to fill the reported hole. The chrome
+/// is auto-sized to the window as its content view and the downloads popup keeps its own place.
+/// All loaded tabs stack in the same hole; the app raises the active one, `load_on_open` tabs sit
+/// live behind it.
 pub fn layout_webviews<R: Runtime>(window: &Window<R>, hole: HoleRect) {
     record_hole(window.label(), hole);
     for wv in window.webviews() {
-        if wv.label() == window.label() || crate::downloads::popup::is_popup_label(wv.label()) {
+        if !is_content_webview(wv.label(), window.label()) {
             continue;
         }
         let _ = wv.set_position(LogicalPosition::new(hole.x, hole.y));
         let _ = wv.set_size(LogicalSize::new(hole.width.max(0.0), hole.height.max(0.0)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_content_webview;
+
+    #[test]
+    fn content_webviews_exclude_the_chrome_and_the_downloads_popup() {
+        assert!(is_content_webview("main:tab-1a2b", "main"));
+        assert!(!is_content_webview("main", "main"));
+        assert!(!is_content_webview("main:shell-downloads", "main"));
     }
 }

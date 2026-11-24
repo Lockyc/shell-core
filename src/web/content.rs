@@ -507,15 +507,14 @@ pub fn close_content_webview(wv: &tauri::Webview) {
 /// End the page of every content webview in `window`, for the paths that close a *window* rather
 /// than a tab (user close, ⌘⇧W, a reload dropping the window, a detached window redocking). The
 /// window's teardown drops those webviews, which leaks them still running exactly as above — so
-/// their pages are ended first. The window's own main webview is its chrome (its label *is* the
-/// window's), which the window takes with it; only the content children need this. The window's
+/// their pages are ended first — only for its content webviews
+/// ([`crate::compositing::is_content_webview`]); the chrome goes with the window. The window's
 /// downloads popup is closed outright (`downloads::popup::close`).
 pub fn close_window_pages(window: &Window) {
     crate::downloads::popup::close(window);
     for (label, wv) in window.app_handle().webviews() {
-        if label != window.label()
-            && !crate::downloads::popup::is_popup_label(&label)
-            && wv.window().label() == window.label()
+        if wv.window().label() == window.label()
+            && crate::compositing::is_content_webview(&label, window.label())
         {
             close_page(&wv);
         }
@@ -543,7 +542,7 @@ pub const EXIT_UNLOAD_CAP: std::time::Duration = std::time::Duration::from_milli
 pub fn end_pages_for_exit(app: &AppHandle) {
     let mut pids = Vec::new();
     for (label, wv) in app.webviews() {
-        if label == wv.window().label() || crate::downloads::popup::is_popup_label(&label) {
+        if !crate::compositing::is_content_webview(&label, wv.window().label()) {
             continue;
         }
         pids.extend(web_process_id(&wv));
