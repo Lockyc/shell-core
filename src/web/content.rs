@@ -508,7 +508,7 @@ pub fn close_content_webview(wv: &tauri::Webview) {
 /// than a tab (user close, ⌘⇧W, a reload dropping the window, a detached window redocking). The
 /// window's teardown drops those webviews, which leaks them still running exactly as above — so
 /// their pages are ended first — only for its content webviews
-/// ([`crate::compositing::is_content_webview`]); the chrome goes with the window. The window's
+/// (`compositing::is_content_webview`); the chrome goes with the window. The window's
 /// downloads popup is closed outright (`downloads::popup::close`).
 pub fn close_window_pages(window: &Window) {
     crate::downloads::popup::close(window);

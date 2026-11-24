@@ -66,7 +66,7 @@ pub(crate) fn is_content_webview(label: &str, window_label: &str) -> bool {
     label != window_label && !crate::downloads::popup::is_popup_label(label)
 }
 
-/// Position every content webview ([`is_content_webview`]) to fill the reported hole. The chrome
+/// Position every content webview (`is_content_webview`) to fill the reported hole. The chrome
 /// is auto-sized to the window as its content view and the downloads popup keeps its own place.
 /// All loaded tabs stack in the same hole; the app raises the active one, `load_on_open` tabs sit
 /// live behind it.
