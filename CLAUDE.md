@@ -62,8 +62,8 @@ Two rules span every module below:
   mapping (`plugin_keyed`). `src/geometry.rs`.
 - **`compositing`** (`runtime`) — the hole-punch webview layout, curator, lector + flotilla. warden composites a
   native `NSView` through its own `geometry.rs` — genuine divergence, left alone.
-- **`watch::watch_config`** (`runtime`) — config hot-reload, curator, lector + flotilla. warden keeps its own
-  watcher: it parses inside and drives a main-thread reconcile, a different contract.
+- **`watch::watch_config`** (`runtime`) — config hot-reload, curator, lector + flotilla. warden runs its own
+  watcher until its next shell-core re-pin moves it onto this one (warden's `docs/FOLLOWUPS.md`).
 - **`banner`** (`banner`, in `runtime`; macOS) — native notifications (`UNUserNotificationCenter`),
   curator and warden; a click hands the app the banner's window, tab and `context`, and the app decides
   which window to `raise` (warden raises a popped-out tab's own).
