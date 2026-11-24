@@ -23,7 +23,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use tauri::{AppHandle, Manager, WebviewWindow};
 
-use super::plan::{assign, menu_entries, reconcile, Slot, WindowDecl, WindowOp};
+use super::plan::{assign, menu_entries, reconcile, title_matches, Slot, WindowDecl, WindowOp};
 use crate::home::{close_home, home_state, show_home, HomeState};
 use crate::menu::WindowEntry;
 
@@ -159,7 +159,7 @@ impl SetState {
     pub(crate) fn label_for_title(&self, title: &str) -> Option<String> {
         self.slots()
             .into_iter()
-            .find(|s| s.decl.title.trim() == title.trim())
+            .find(|s| title_matches(&s.decl.title, title))
             .map(|s| s.label)
     }
 
@@ -193,7 +193,7 @@ impl SetState {
         let key = self
             .decls
             .iter()
-            .position(|d| d.title.trim() == title)
+            .position(|d| title_matches(&d.title, title))
             .map(|i| self.launch_label_at(i))
             .filter(|k| *k != slot.label);
         self.live.insert(title.to_string(), slot.label.clone());
@@ -308,10 +308,10 @@ impl SetState {
             return Ok(Vec::new());
         };
         let old = slot.decl.title.trim();
-        if old == title {
+        if title_matches(old, title) {
             return Ok(Vec::new());
         }
-        if self.decls.iter().any(|d| d.title.trim() == title) {
+        if self.decls.iter().any(|d| title_matches(&d.title, title)) {
             return Err(RenameError::Taken(title.to_string()));
         }
         self.decls[idx].title = title.to_string();
@@ -993,7 +993,7 @@ mod model {
                         let launch = s
                             .decls
                             .iter()
-                            .position(|d| d.title.trim() == slot.decl.title.trim())
+                            .position(|d| title_matches(&d.title, &slot.decl.title))
                             .map(|i| s.launch_label_at(i));
                         if let Some(key) = launch.filter(|k| *k != slot.label) {
                             prop_assert_eq!(

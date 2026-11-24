@@ -143,8 +143,15 @@ pub fn assign(decls: &[WindowDecl], live: &BTreeMap<String, String>) -> Vec<Slot
         .collect()
 }
 
+/// Whether two window titles name the same window: a window's identity is its trimmed title. The
+/// one rule for every title match — [`reconcile`], [`entry_for_title`], the `WindowSet`, and any app
+/// that matches its own window records by title.
+pub fn title_matches(a: &str, b: &str) -> bool {
+    a.trim() == b.trim()
+}
+
 fn find<'a>(decls: &'a [WindowDecl], title: &str) -> Option<&'a WindowDecl> {
-    decls.iter().find(|d| d.title.trim() == title.trim())
+    decls.iter().find(|d| title_matches(&d.title, title))
 }
 
 /// Ops to bring a running set from `old` to `new`: `Close` for a live window no longer declared
@@ -199,7 +206,7 @@ pub fn menu_entries(slots: &[Slot]) -> Vec<WindowEntry> {
 /// How an app finds a popped-out tab's origin window, which it records by title because a label
 /// can't follow an in-place rename.
 pub fn entry_for_title<'a>(entries: &'a [WindowEntry], title: &str) -> Option<&'a WindowEntry> {
-    entries.iter().find(|e| e.title.trim() == title.trim())
+    entries.iter().find(|e| title_matches(&e.title, title))
 }
 
 #[cfg(test)]
@@ -293,6 +300,14 @@ mod tests {
         let found = entry_for_title(&entries, " side project ").unwrap();
         assert_eq!((found.id.as_str(), found.open), ("side-project", false));
         assert!(entry_for_title(&entries, "gone").is_none());
+    }
+
+    #[test]
+    fn titles_match_ignoring_surrounding_whitespace_only() {
+        assert!(title_matches(" side project ", "side project"));
+        assert!(title_matches("Work", "Work"));
+        assert!(!title_matches("Work", "work"));
+        assert!(!title_matches("side  project", "side project"));
     }
 
     #[test]

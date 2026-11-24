@@ -14,6 +14,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::{AppHandle, LogicalPosition, Manager};
 
 use super::form::{open_form, FormMode, FormResult};
+use super::plan::title_matches;
 use super::set::{RenameError, SetState, WindowSet, WindowWrite};
 use crate::menu::ids;
 
@@ -94,7 +95,7 @@ impl SetState {
                 if new.is_empty() {
                     return Err(RenameError::Empty.to_string());
                 }
-                let retitle = old != new;
+                let retitle = !title_matches(old, new);
                 if retitle && self.label_for_title(new).is_some_and(|l| l != label) {
                     return Err(RenameError::Taken(new.to_string()).to_string());
                 }
