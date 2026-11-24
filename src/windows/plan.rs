@@ -113,7 +113,7 @@ pub fn reserved_labels() -> HashSet<String> {
     ])
 }
 
-/// Slots for `decls` (config order). An open window (its trimmed title in `live`) keeps its live
+/// Slots for `decls` (config order). An open window (its [`title_key`] in `live`) keeps its live
 /// label; the rest get fresh unique labels avoiding every live label, the reserved labels and
 /// labels assigned earlier. A live label already claimed by an earlier same-titled decl is not
 /// reused: the later one counts as closed.
@@ -124,7 +124,7 @@ pub fn assign(decls: &[WindowDecl], live: &BTreeMap<String, String>) -> Vec<Slot
         .iter()
         .map(|d| {
             let pin = live
-                .get(d.title.trim())
+                .get(title_key(&d.title))
                 .filter(|l| pinned.insert((*l).clone()));
             let (label, open) = match pin {
                 Some(l) => (l.clone(), true),
@@ -143,11 +143,17 @@ pub fn assign(decls: &[WindowDecl], live: &BTreeMap<String, String>) -> Vec<Slot
         .collect()
 }
 
-/// Whether two window titles name the same window: a window's identity is its trimmed title. The
-/// one rule for every title match — [`reconcile`], [`entry_for_title`], the `WindowSet`, and any app
-/// that matches its own window records by title.
+/// A window's identity: its trimmed title. The one rule behind every title match
+/// ([`title_matches`]) and every map keyed by window — `live` in [`assign`]/[`reconcile`] and the
+/// `WindowSet`, and any app that keys its own window records by title.
+pub fn title_key(title: &str) -> &str {
+    title.trim()
+}
+
+/// Whether two window titles name the same window ([`title_key`]). Used by [`reconcile`],
+/// [`entry_for_title`], the `WindowSet`, and any app that matches its own window records by title.
 pub fn title_matches(a: &str, b: &str) -> bool {
-    a.trim() == b.trim()
+    title_key(a) == title_key(b)
 }
 
 fn find<'a>(decls: &'a [WindowDecl], title: &str) -> Option<&'a WindowDecl> {
@@ -167,7 +173,7 @@ pub fn reconcile(
     let mut closed = HashSet::new();
     for o in old {
         if find(new, &o.title).is_none() {
-            if let Some(label) = live.get(o.title.trim()) {
+            if let Some(label) = live.get(title_key(&o.title)) {
                 if closed.insert(label) {
                     ops.push(WindowOp::Close(label.clone()));
                 }
@@ -435,7 +441,7 @@ mod tests {
                 let decls: Vec<_> = m.keys().map(|t| decl(t)).collect();
                 assign(&decls, &BTreeMap::new())
                     .into_iter()
-                    .map(|s| (s.decl.title.trim().to_string(), s.label))
+                    .map(|s| (title_key(&s.decl.title).to_string(), s.label))
                     .collect()
             })
         }

@@ -23,7 +23,9 @@ use std::sync::{Mutex, MutexGuard};
 
 use tauri::{AppHandle, Manager, WebviewWindow};
 
-use super::plan::{assign, menu_entries, reconcile, title_matches, Slot, WindowDecl, WindowOp};
+use super::plan::{
+    assign, menu_entries, reconcile, title_key, title_matches, Slot, WindowDecl, WindowOp,
+};
 use crate::home::{close_home, home_state, show_home, HomeState};
 use crate::menu::WindowEntry;
 
@@ -117,7 +119,7 @@ pub(crate) enum Effect {
 pub(crate) struct SetState {
     /// Every declared window, config order.
     decls: Vec<WindowDecl>,
-    /// Trimmed title → label of each open window.
+    /// [`title_key`] → label of each open window.
     live: BTreeMap<String, String>,
     /// Labels of open windows, least to most recently focused.
     focus_order: Vec<String>,
@@ -189,7 +191,7 @@ impl SetState {
     /// Mark `slot` live and build it; a window opened on a label other than the one it launches
     /// with next time (a live label took its usual one) saves its bounds under the launch label.
     fn open(&mut self, slot: Slot) -> Vec<Effect> {
-        let title = slot.decl.title.trim();
+        let title = title_key(&slot.decl.title);
         let key = self
             .decls
             .iter()
@@ -317,8 +319,8 @@ impl SetState {
         self.decls[idx].title = title.to_string();
         let mut effects = Vec::new();
         if slot.open {
-            self.live.remove(old);
-            self.live.insert(title.to_string(), slot.label.clone());
+            self.live.remove(title_key(old));
+            self.live.insert(title_key(title).to_string(), slot.label.clone());
             effects.push(Effect::SetTitle {
                 label: slot.label.clone(),
                 title: title.to_string(),
@@ -342,7 +344,7 @@ impl SetState {
         };
         self.decls.remove(idx);
         if slot.open {
-            self.live.remove(slot.decl.title.trim());
+            self.live.remove(title_key(&slot.decl.title));
             vec![Effect::Close(slot.label)]
         } else {
             Vec::new()
