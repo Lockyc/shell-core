@@ -1,5 +1,4 @@
-//! Native mouse side-button (back/forward) navigation for content webviews — shared by curator and
-//! lector (warden hosts native terminal surfaces with no page history and does not use it).
+//! Native mouse side-button (back/forward) navigation for content webviews.
 //!
 //! macOS delivers a mouse's back/forward side buttons in one of two ways, and WKWebView acts on
 //! neither — nor does it forward them to the DOM, so no page-level JS `mouseup` handler or

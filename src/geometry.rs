@@ -395,9 +395,8 @@ pub fn persist_as<R: Runtime>(app: &AppHandle<R>, label: &str, key: &str) {
 /// [`Persist::Skip`] covers its own transient windows on top.
 ///
 /// **A detached-tab window is deliberately NOT excluded**, though it is just as ephemeral. What
-/// makes it persistable is that its label is *deterministic per tab*: every consumer derives the
-/// detach token from a stable tab identity (warden from `origin_label:tab_key`, curator and lector
-/// from the tab's own label), so `shell-detach:<token>` names the same tab across sessions and its
+/// makes it persistable is that its label is *deterministic per tab*: the detach token derives from
+/// a durable tab identity (`detach::detached_label`), so `shell-detach:<token>` names the same tab across sessions and its
 /// stored rect is meaningful on the next pop-out. The home surface has no such identity to key on
 /// — it is a single window whose bounds every state it shows would have to share.
 ///

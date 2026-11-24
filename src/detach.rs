@@ -29,8 +29,7 @@ pub const DETACH_LABEL_PREFIX: &str = "shell-detach:";
 /// **`token` must be derived from a durable tab identity, not a per-session counter or an
 /// allocation order.** [`crate::geometry`] keys a detached window's remembered size and position
 /// on the resulting label, so a token that changes between sessions silently forgets the tab's
-/// geometry and leaves an orphan entry behind each time. Every consumer already does this
-/// (warden hashes `origin_label:tab_key`; curator and lector hash the tab's own label).
+/// geometry and leaves an orphan entry behind each time.
 pub fn detached_label(token: &str) -> String {
     format!("{DETACH_LABEL_PREFIX}{token}")
 }

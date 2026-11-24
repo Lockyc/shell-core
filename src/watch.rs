@@ -1,4 +1,4 @@
-//! Config-file hot-reload watcher shared by curator, lector and flotilla.
+//! Config-file hot-reload watcher.
 //!
 //! Watches the config file's **parent directory** (atomic-save editors write a temp file + rename,
 //! replacing the inode — a single-file watch would silently break) and matches events by **file
@@ -9,11 +9,6 @@
 //! delivered — or from what `on_change` last wrote (`Some(bytes)`, a format-on-save rewrite) — so
 //! one save's burst of events, and the echo of the app's own write, reload exactly once, and a
 //! re-save of identical bytes reloads nothing.
-//!
-//! warden is **not** a consumer: its own `Watcher` parses inside, drives a slow root-scan +
-//! main-thread reconcile, and relies on `format_file`'s diff-guard rather than an echo-swallow
-//! marker — a genuinely different contract, already correct (it is the file-name-match reference
-//! this shared watcher was modelled on), so it keeps its own implementation.
 
 use notify::{RecursiveMode, Watcher as _};
 use std::path::{Path, PathBuf};
@@ -93,9 +88,8 @@ mod tests {
 
     #[test]
     fn fires_on_save_matching_by_file_name() {
-        // Proves the shared watcher fires on a change to the watched file — the file-name match
-        // that fixes curator's + lector's exact-path bug (they'd miss events entirely under a
-        // symlinked config dir on macOS).
+        // Proves the watcher fires on a change to the watched file — the file-name match an
+        // exact-path match misses entirely under a symlinked config dir on macOS.
         let dir = tempdir().unwrap();
         let path = dir.path().join("config.toml");
         write(&path, "first");

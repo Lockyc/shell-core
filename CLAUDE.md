@@ -7,7 +7,8 @@ links:
 
 # shell-core — agent guide
 
-The third shared layer behind **curator**, **warden**, **lector** and **flotilla**, alongside
+The third shared layer behind the tabbed apps **curator**, **warden**, **lector** and
+**flotilla**, and the slice **cooee** and **clacks** take (each entry below names who), alongside
 `chrome-core` (the sidebar view) and `config-core` (config primitives). shell-core owns the
 **build/release tooling** and the sliver of **Tauri runtime setup** that is byte-identical across
 those apps. Consumed by **git-rev pin** (never a path dep in git); shell-core is **main-only** — a
@@ -36,11 +37,13 @@ Two rules span every module below:
   below). Each script's header carries its steps and footguns (`release.sh`'s ordering,
   `launch-app.sh`'s `env -i`, `gen-latest-json.sh`'s two platform keys). The `<core>-dev` /
   `<core>-pin` recipe names wrapping `core-patch.sh` are the interface fleet tooling calls.
-- **`build_stamp()`** — git sha/date → `BUILD_GIT_SHA`/`BUILD_DATE` for the About box.
-- **`tabs::pick_live_neighbour`** (default surface) — the tab-unload policy, every app.
+  Every app.
+- **`build_stamp()`** — git sha/date → `BUILD_GIT_SHA`/`BUILD_DATE` for the About box; every app
+  but clacks.
+- **`tabs::pick_live_neighbour`** (default surface) — the tab-unload policy, the tabbed apps.
 - **`register_plugins()`** (`runtime`) — geometry, updater and process plugins, `edit_keys` (⌘Z,
   ⇧⌘Z and ⌘A reach the focused page before the Edit menu), plus the home and detach custom
-  protocols, for every app.
+  protocols, for every app but clacks.
   - **Deferred: drop `register_plugins`' `skip_labels` parameter.** No consumer uses it (every app
     passes `&[]`), so it and its plumbing are dead: `geometry::plugin`'s `skip_labels`,
     `GeometryState.skip`, the `state.skip.contains` clause in `geometry::is_excluded`, and the
@@ -68,10 +71,10 @@ Two rules span every module below:
 - **`downloads`** (`runtime`) — every content webview's downloads in one app-wide list
   (`downloads::list` is the pure model) and the popup floating over the content that shows it
   (`downloads::popup`: the app's button calls `toggle`, and `close` on tab activation);
-  `downloads::init` hands the app its state changes.
+  `downloads::init` hands the app its state changes. curator + flotilla.
 - **`mouse_nav::install`** / **`progress_bar::install`** (`runtime`, macOS) — side-button navigation
-  and the loading bar for content WKWebViews, curator + lector; flotilla takes `mouse_nav` (warden
-  hosts native terminals).
+  and the loading bar for content WKWebViews: `mouse_nav` curator, lector + flotilla;
+  `progress_bar` lector (warden hosts native terminals).
 - **`web`** (`runtime`) — the content-webview layer: `escape` (link routing, escape sentinel),
   `session` (`data_store_id` over an app-supplied seed; the default session name stays in the
   app's config), `insecure` (allowlisted self-signed TLS, macOS) and `attachment` (every
@@ -89,13 +92,13 @@ Two rules span every module below:
   `window.ipc` made replaceable before the first load, which is why every content webview is born
   on `about:blank`). lector, which hand-builds its local-server webviews, calls `web::pointer::watch`
   itself.
-- **`menu`** (`runtime`) — the App/Config/Window/Edit spine, the whole Tab submenu and `route`, all
-  apps. The Tab submenu's order and the popped-out routing rule live here; each app supplies its own
+- **`menu`** (`runtime`) — the App/Config/Window/Edit spine, the whole Tab submenu and `route`, the
+  tabbed apps. The Tab submenu's order and the popped-out routing rule live here; each app supplies its own
   item groups, event names, origin lookup and `selectByOffset` cycle predicate (required
   divergence). The close/pop-out/find accelerators are constants here, the family
   standard's one home.
-- **`home`** (`runtime`) — the surface an app shows instead of being stranded windowless, every
-  app. `src/home.rs` has why it is served over its own scheme.
+- **`home`** (`runtime`) — the surface an app shows instead of being stranded windowless, the
+  tabbed apps. `src/home.rs` has why it is served over its own scheme.
 - **`windows`** (`runtime`) — `plan` (pure: labels pinned to live ones, title-matched reconcile, menu
   entries), `WindowSet` (open/focus, close-keeps-listed, opt-in last-close quit, in-place rename,
   delete, home) over the app's `WindowHost`, `form` + `flow` (the New/Edit/Delete form and its menu
@@ -103,7 +106,7 @@ Two rules span every module below:
   no config-core edge. The `{window}:{within}` child-label scheme is `label` (zero-dep), including
   `rehome` for a child moving to another window label. Origin bookkeeping (which window a
   popped-out tab returns to) stays per app; it finds that window by title (`entry_for_title`).
-- **`detach`** (`runtime`) — a popped-out tab's window, every app. **Invariant spanning
+- **`detach`** (`runtime`) — a popped-out tab's window, the tabbed apps. **Invariant spanning
   `detach`, `geometry` and every consumer: the `token` passed to `detached_label` must derive from a
   durable tab identity**, because geometry persists a detached window keyed on that label; each
   consumer pins its derivation with its own test. `src/detach.rs` and `src/detach.html` carry the
@@ -169,7 +172,7 @@ first" rather than skip.
   the consumer's tracked `scripts/tooling.env` (keys: `scripts/tooling.env.example`);
   everything else derives (`VERSION_FILE=${TAURI_CRATE_DIR}/Cargo.toml`, bundle `${APP_NAME}.app`,
   zip/tarball names, URLs from `${UPDATER_REPO}`). The `tests/scripts.rs` guard fails the build if
-  `warden`/`curator`/`lector` leaks into a script or a script stops sourcing `tooling.env`.
+  any consuming app's name leaks into a script or a script stops sourcing `tooling.env`.
 
 ## The zero-dep/runtime feature split (why it exists)
 

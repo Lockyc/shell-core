@@ -1,5 +1,5 @@
 //! Content-webview loading bar — a thin determinate progress bar pinned to the top of each content
-//! WKWebView, shared by curator + lector (warden hosts native terminals, no WKWebView). Mirrors
+//! WKWebView. Mirrors
 //! `mouse_nav`'s split: this core owns the native mechanism (an `NSView` overlay + the timer that
 //! drives it); the app calls [`install`] once per content webview and supplies the accent colour.
 //!

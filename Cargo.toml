@@ -67,8 +67,8 @@ tauri-plugin-process = { version = "2", optional = true }
 # tauri already carries. Optional, so `just zero-dep` stays green.
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-# The shared config-file hot-reload watcher (src/watch.rs), consumed by curator + lector. Same
-# major as their own pin so cargo unifies to one `notify` across each app's dependency graph.
+# The shared config-file hot-reload watcher (src/watch.rs). Same major as its consumers' own pin
+# so cargo unifies to one `notify` across each app's dependency graph.
 notify = { version = "6", optional = true }
 # Link routing (src/web/escape.rs): URL parsing, and the public-suffix list (compiled in) whose
 # registrable domain `same_site`'s sign-in carve-out compares.

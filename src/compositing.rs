@@ -1,11 +1,6 @@
-//! Content-webview compositing primitives shared by curator and lector — the hole-punch layout
-//! where the sidebar chrome is the window's *main* webview and the `add_child` content webviews are
-//! positioned by Rust to fill the reported content hole.
-//!
-//! warden is deliberately **not** a consumer: it composites a native `NSView` and positions it
-//! through its own `geometry.rs` (a bottom-left → top-left Y-flip + HiDPI backing-size conversion),
-//! so it keeps its own rect type and native positioning. Only curator and lector place child
-//! webviews this way, and their code for it was byte-identical — so it lives here once.
+//! Content-webview compositing primitives — the hole-punch layout where the sidebar chrome is the
+//! window's *main* webview and the `add_child` content webviews are positioned by Rust to fill the
+//! reported content hole.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
