@@ -429,7 +429,8 @@ fn work_area_points(monitor: &Monitor) -> Rect {
     }
 }
 
-/// The window's current geometry in points, or `None` when it must not be recorded.
+/// The window's current rect in points, measured the one way both [`snapshot`] and
+/// [`restore_size`] compare against.
 ///
 /// `outer_position` + `inner_size` mirror what restore applies (`set_position` is outer,
 /// `set_size` is inner), so the pair round-trips exactly. That round-trip is also why storing
@@ -440,6 +441,20 @@ fn work_area_points(monitor: &Monitor) -> Rect {
 /// without `Overlay` would have a taller frame than its content size, and clamping the content size
 /// against the work area would silently let the actual on-screen frame — titlebar included —
 /// exceed it.
+fn points_rect<R: Runtime>(window: &Window<R>) -> Option<Rect> {
+    let scale = window.scale_factor().ok()?;
+    let position = window.outer_position().ok()?.to_logical::<f64>(scale);
+    let size = window.inner_size().ok()?.to_logical::<f64>(scale);
+    Some(Rect {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+    })
+}
+
+/// The window's current geometry in points ([`points_rect`]), or `None` when it must not be
+/// recorded.
 ///
 /// Fullscreen is the load-bearing guard: macOS reports a fullscreen or split-view window's frame
 /// as the *tile*, and tao sets its fullscreen state in `windowWillEnterFullScreen` — before the
@@ -460,15 +475,7 @@ fn snapshot<R: Runtime>(window: &Window<R>) -> Option<Rect> {
     if window.is_fullscreen().unwrap_or(true) || window.is_minimized().unwrap_or(true) {
         return None;
     }
-    let scale = window.scale_factor().ok()?;
-    let position = window.outer_position().ok()?.to_logical::<f64>(scale);
-    let size = window.inner_size().ok()?.to_logical::<f64>(scale);
-    Some(Rect {
-        x: position.x,
-        y: position.y,
-        width: size.width,
-        height: size.height,
-    })
+    points_rect(window)
 }
 
 /// Choose the size to restore a saved rect at, given the work area (if any) it will land on.
@@ -496,20 +503,7 @@ fn fit_restored_size(saved: Rect, work: Option<Rect>) -> Rect {
 /// Apply a saved size at the window's own origin, clamped to the monitor it was built on (the
 /// primary when that can't be resolved). Returns the rect it applied.
 fn restore_size<R: Runtime>(window: &Window<R>, saved: Rect) -> Rect {
-    let current = window
-        .scale_factor()
-        .ok()
-        .and_then(|scale| {
-            let position = window.outer_position().ok()?.to_logical::<f64>(scale);
-            let size = window.inner_size().ok()?.to_logical::<f64>(scale);
-            Some(Rect {
-                x: position.x,
-                y: position.y,
-                width: size.width,
-                height: size.height,
-            })
-        })
-        .unwrap_or(saved);
+    let current = points_rect(window).unwrap_or(saved);
     let work = window
         .current_monitor()
         .ok()
