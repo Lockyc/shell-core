@@ -26,8 +26,9 @@ use std::path::{Path, PathBuf};
 ///
 /// The parent directory is created (before this returns) if it doesn't exist yet, so a watcher
 /// armed on a fresh install, before any config is written, still sees the file once it appears —
-/// the consumers arm it once at setup and never again. If the watch still can't be established
-/// the thread simply exits and the config won't hot-reload.
+/// the consumers arm it once at setup and never again. It returns once the watch is registered, so
+/// a write straight after it is seen. If the watch can't be established the thread exits and the
+/// config won't hot-reload.
 pub fn watch_config(
     path: PathBuf,
     mut on_change: impl FnMut(&str) -> Option<String> + Send + 'static,
@@ -39,6 +40,8 @@ pub fn watch_config(
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
     let _ = std::fs::create_dir_all(&dir);
+    // Dropped (without a send) when the thread exits early, which ends the wait below just the same.
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();
         let Ok(mut watcher) = notify::recommended_watcher(tx) else {
@@ -47,6 +50,7 @@ pub fn watch_config(
         if watcher.watch(&dir, RecursiveMode::NonRecursive).is_err() {
             return;
         }
+        let _ = ready_tx.send(());
         let want_name = path.file_name().map(|n| n.to_owned());
         // The bytes the app now holds: the last delivered source, or on_change's own write of it.
         // A read that matches is a repeat event (FSEvents and atomic renames deliver several per
@@ -70,6 +74,7 @@ pub fn watch_config(
             current = Some(on_change(&src).unwrap_or(src));
         }
     });
+    let _ = ready_rx.recv();
 }
 
 #[cfg(test)]
@@ -101,7 +106,6 @@ mod tests {
             None
         });
 
-        std::thread::sleep(Duration::from_millis(200));
         write(&path, "second");
 
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -129,7 +133,6 @@ mod tests {
             None
         });
 
-        std::thread::sleep(Duration::from_millis(200));
         for _ in 0..3 {
             write(&path, "same");
             std::thread::sleep(Duration::from_millis(100));
@@ -170,7 +173,6 @@ mod tests {
             "watch_config must create the parent dir"
         );
 
-        std::thread::sleep(Duration::from_millis(200));
         write(&path, "starter");
 
         let v = rx
