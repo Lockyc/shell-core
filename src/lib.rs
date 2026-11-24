@@ -1,41 +1,13 @@
-//! Shared Tauri app-shell + release-tooling layer for the curator, warden, lector and flotilla apps (and
-//! future siblings). Consumed by git-rev pin, like `chrome-core` (the sidebar view) and
-//! `config-core` (config primitives). Two concerns, split by Cargo feature so a build-dependency
-//! stays light:
+//! Shared Tauri app-shell + release-tooling layer, consumed by git-rev pin. Two concerns, split by
+//! Cargo feature so a build-dependency stays light:
 //!
-//! - **Build/release tooling (default, zero-dep).** The release/install/core-patch scripts are the
-//!   source of truth here in `scripts/`, embedded as string constants that [`materialize_scripts`]
-//!   writes into a consumer's own `scripts/` (git-ignored) from its `build.rs` — the same
-//!   embed-and-materialize pattern `chrome-core` uses for its CSS/JS. The scripts are generic;
-//!   every app-specific value is read from a tracked per-app `scripts/tooling.env` (keys:
-//!   `scripts/tooling.env.example`). [`build_stamp`] is the other build-time helper: a git
-//!   sha/date stamp for the About box.
-//! - **Runtime (`runtime` feature).** [`register_plugins`] installs the plugins every app registers
-//!   identically (geometry, the updater, and the process plugin) and the home + detach surfaces'
-//!   custom protocols.
-//!   [`geometry`] persists each window's size/position — in AppKit points, clamped to the target
-//!   monitor's work area on restore, and never recorded while a window is fullscreen or minimized.
-//!   Points, not `tauri-plugin-window-state`'s physical pixels, which are wrong across monitors of
-//!   differing scale factor: physical is points × the occupied screen's scale factor, so a rect
-//!   saved on a 2x display and applied on a 1x one is out by the ratio. Given an app's resolved
-//!   config path it derives `.window-geometry-{fnv1a_64(canonicalize(path)):016x}.json`
-//!   ([`geometry_filename`], over [`config_scoped_filename`] — the canonicalize→hash→format step,
-//!   also used by an app's own per-config stores; only the *path* and stem are app-specific).
-//!   [`menu`] builds the shared menus — App/Config/Window/Edit, and the whole Tab submenu around
-//!   each app's own item groups ([`menu::build_tab_menu`]) — and routes their commands to a window
-//!   ([`menu::route`]). [`home`] is the surface an app shows when it would otherwise
-//!   have no window (no config / a load error / a valid config's window list), so it is never
-//!   stranded invisible. [`detach`] is the "pop a tab out into its own temporary window" lifecycle —
-//!   the label scheme + banner-shell window a detached tab gets; the app owns moving the tab's actual
-//!   content and all origin bookkeeping. [`compositing`] is the hole-punch content-webview placement
-//!   shared by curator, lector and flotilla (the [`compositing::HoleRect`] rect + [`compositing::layout_webviews`]);
-//!   warden composites a native `NSView` through its own geometry, so it is not a consumer.
-//!   [`watch`] is the config-file hot-reload watcher for curator, lector and flotilla (parent-dir watch, file-name
-//!   match, echo-swallow via a config-agnostic seam — the app parses); warden's own watcher parses
-//!   inside + drives a deeper reconcile, so it keeps its own. Deliberately NOT shared: IPC fan-out
-//!   (per-app event shapes) and warden's native compositing/registry. The per-caller
-//!   command-isolation model — why a Tauri command needs a label gate, or doesn't (origin dispatch's
-//!   job, given no app ACL manifest) — is documented once in this crate's CLAUDE.md, not per app.
+//! - **Build/release tooling (default, zero-dep).** [`materialize_scripts`] writes the embedded
+//!   release/install/core-patch scripts into a consumer's own `scripts/` from its `build.rs`;
+//!   [`build_stamp`] stamps the build's git sha and date for the About box.
+//! - **Runtime (`runtime` feature).** [`register_plugins`] installs what every app registers
+//!   identically; each module's own docblock carries its contract.
+//!
+//! What belongs here and what deliberately does not is the crate's CLAUDE.md.
 
 /// Embedded source of `scripts/release.sh` — the one-command release: build + notarize, then tag,
 /// fast-forward main, push, and publish the GitHub release with its assets.
@@ -211,10 +183,16 @@ mod runtime {
     use std::path::Path;
     use tauri::{Builder, Runtime};
 
-    /// Register the plugins every consuming app installs identically: window geometry (persist
-    /// each window's size/position in points, keyed per-config-file via
-    /// [`crate::geometry::geometry_filename`]), the updater, the process plugin (for the
-    /// updater's relaunch), and [`crate::edit_keys`]. Returns the builder for continued chaining.
+    /// Register what every consuming app installs identically, and return the builder for
+    /// continued chaining:
+    ///
+    /// - plugins: window geometry (keyed per config file via
+    ///   [`crate::geometry::geometry_filename`]), the updater, the process plugin (the updater's
+    ///   relaunch) and [`crate::edit_keys`];
+    /// - custom protocols: the home surface ([`crate::home`]), the window form
+    ///   ([`crate::windows::form`]), the downloads popup ([`crate::downloads::popup`]) and the
+    ///   detached-tab window ([`crate::detach`]).
+    ///
     /// It reads [`crate::focus::UNFOCUSED_ENV`], so an app launched with it never activates.
     ///
     /// `config_path` is the app's resolved config path — `Some(path)` scopes the geometry file to

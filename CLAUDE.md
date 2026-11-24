@@ -41,9 +41,8 @@ Two rules span every module below:
 - **`build_stamp()`** — git sha/date → `BUILD_GIT_SHA`/`BUILD_DATE` for the About box; every app
   but clacks.
 - **`tabs::pick_live_neighbour`** (default surface) — the tab-unload policy, the tabbed apps.
-- **`register_plugins()`** (`runtime`) — geometry, updater and process plugins, `edit_keys` (⌘Z,
-  ⇧⌘Z and ⌘A reach the focused page before the Edit menu), plus the home and detach custom
-  protocols, for every app but clacks.
+- **`register_plugins()`** (`runtime`) — the plugins and custom protocols every app installs
+  identically (its docblock lists them), every app but clacks.
   - **Deferred: drop `register_plugins`' `skip_labels` parameter.** No consumer uses it (every app
     passes `&[]`), so it and its plumbing are dead: `geometry::plugin`'s `skip_labels`,
     `GeometryState.skip`, the `state.skip.contains` clause in `geometry::is_excluded`, and the
