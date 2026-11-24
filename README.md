@@ -4,12 +4,13 @@
 ![Rust](https://img.shields.io/badge/rust-CE412B?logo=rust&logoColor=white)
 [![License](https://img.shields.io/github/license/lockyc/shell-core)](LICENSE)
 
-The app shell and release pipeline four macOS Tauri apps share —
+The app shell and release pipeline a family of macOS Tauri apps share —
 [warden](https://github.com/lockyc/warden) (terminals), [curator](https://github.com/lockyc/curator)
-(browser tabs), [lector](https://github.com/lockyc/lector) (local doc sites) and
-[flotilla](https://github.com/lockyc/flotilla) (document workspaces). At runtime it is the windows,
-menus, web views, notifications and updater every app needs; at build time it is a one-command
-signed release. Each app's own content, menu items and commands stay in the app.
+(browser tabs), [lector](https://github.com/lockyc/lector) (local doc sites),
+[flotilla](https://github.com/lockyc/flotilla) (document workspaces) and
+[cooee](https://github.com/lockyc/cooee) (Google Meet in its own window). At runtime it is the
+windows, menus, web views, notifications and updater those apps need, each taking the parts it
+uses; at build time it is a one-command signed release. Each app's own content, menu items and commands stay in the app.
 
 ## Use
 
@@ -72,7 +73,7 @@ commands.
 
 ## Status
 
-In use by all four apps, each pinned to a commit rev; there are no tags or releases.
+In use by every app above, each pinned to a commit rev; there are no tags or releases.
 
 ## Related
 
