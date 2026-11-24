@@ -457,10 +457,19 @@ pub fn create_content_webview(
     Ok(webview)
 }
 
-/// Navigate the content webview `label` to `url` (reset / periodic reload to its canonical URL).
-/// The label is looked up app-wide, not only in `window`. No-op if the webview hasn't been created yet (a never-opened lazy tab is skipped).
+/// `label`'s webview, only if it lives in `window`. `Window::get_webview` is `Manager::get_webview`,
+/// which looks the label up across the whole app — and a popped-out tab keeps its label on its
+/// detached window, so an unscoped lookup from the origin window would act on the popped-out copy.
+pub fn own_webview(window: &Window, label: &str) -> Option<tauri::Webview> {
+    window
+        .get_webview(label)
+        .filter(|wv| wv.window().label() == window.label())
+}
+
+/// Navigate `window`'s content webview `label` to `url` (reset / periodic reload to its canonical
+/// URL). No-op if `window` holds no such webview: a never-opened lazy tab, or one popped out of it.
 pub fn navigate_to(window: &Window, label: &str, url: &Url) -> tauri::Result<()> {
-    if let Some(wv) = window.get_webview(label) {
+    if let Some(wv) = own_webview(window, label) {
         wv.navigate(url.clone())?;
     }
     Ok(())
