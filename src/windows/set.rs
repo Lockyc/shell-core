@@ -320,7 +320,8 @@ impl SetState {
         let mut effects = Vec::new();
         if slot.open {
             self.live.remove(title_key(old));
-            self.live.insert(title_key(title).to_string(), slot.label.clone());
+            self.live
+                .insert(title_key(title).to_string(), slot.label.clone());
             effects.push(Effect::SetTitle {
                 label: slot.label.clone(),
                 title: title.to_string(),
