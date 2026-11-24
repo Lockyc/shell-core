@@ -12,15 +12,14 @@ fn scripts_are_embedded_and_generic() {
             "{label} script must source tooling.env"
         );
         // No app name may be baked into the generic script.
-        assert!(!body.contains("warden"), "{label} script leaks 'warden'");
-        assert!(!body.contains("curator"), "{label} script leaks 'curator'");
-        assert!(!body.contains("lector"), "{label} script leaks 'lector'");
-        assert!(
-            !body.contains("flotilla"),
-            "{label} script leaks 'flotilla'"
-        );
+        for app in CONSUMERS {
+            assert!(!body.contains(app), "{label} script leaks '{app}'");
+        }
     }
 }
+
+/// Every app that materializes these scripts.
+const CONSUMERS: [&str; 6] = ["curator", "warden", "lector", "flotilla", "cooee", "clacks"];
 
 /// The release artifact is a universal binary, and the updater matches on the running install's
 /// OWN arch — so a manifest missing a platform key makes auto-update go silently quiet (no error,
