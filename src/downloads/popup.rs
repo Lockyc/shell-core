@@ -272,10 +272,9 @@ fn take_open(pick: impl Fn(&Open) -> bool) -> Option<Webview> {
     Some(open.take()?.webview)
 }
 
-/// Closes the popup `label` from inside its own request: the close is posted to the main thread
-/// from another thread, so the webview is never closed while its scheme request is still running.
-/// A close the page asked for (blur, Escape) is recorded for [`REOPEN_GUARD`]: only that close can
-/// be the downloads button's own mousedown, so an app's close leaves the next click alone.
+/// Closes the popup `label` from inside its own request ([`crate::after_request`]). A close the
+/// page asked for (blur, Escape) is recorded for [`REOPEN_GUARD`]: only that close can be the
+/// downloads button's own mousedown, so an app's close leaves the next click alone.
 fn close_from_page(label: &str, action: PopupAction) {
     if let Some(webview) = take_open(|o| o.webview.label() == label) {
         if action == PopupAction::Close {
@@ -283,10 +282,8 @@ fn close_from_page(label: &str, action: PopupAction) {
                 Some((webview.window().label().to_string(), Instant::now()));
         }
         let app = webview.app_handle().clone();
-        std::thread::spawn(move || {
-            let _ = app.run_on_main_thread(move || {
-                let _ = webview.close();
-            });
+        crate::after_request(&app, move || {
+            let _ = webview.close();
         });
     }
 }

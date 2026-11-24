@@ -76,8 +76,8 @@ fn parse_result_request(uri: &tauri::http::Uri) -> Option<FormResult> {
 }
 
 /// Serve [`FORM_HTML`], and deliver the page's result on [`RESULT_PATH`]: the callback runs first,
-/// then the form closes itself (its `Destroyed` handler finds the callback already taken, so it
-/// cannot answer twice).
+/// then the form closes itself once the request has returned ([`crate::after_request`]; its
+/// `Destroyed` handler finds the callback already taken, so it cannot answer twice).
 ///
 /// A result is accepted only from the form's own webview: the scheme is registered on every
 /// webview, so a page in a content tab could otherwise load a `/result` URL while a form is open
@@ -101,9 +101,12 @@ pub(crate) fn register_protocol<R: tauri::Runtime>(
             return match parse_result_request(req.uri()) {
                 Some(result) => {
                     finish(result);
-                    if let Some(w) = ctx.app_handle().get_window(FORM_LABEL) {
-                        let _ = w.close();
-                    }
+                    let app = ctx.app_handle().clone();
+                    crate::after_request(ctx.app_handle(), move || {
+                        if let Some(w) = app.get_window(FORM_LABEL) {
+                            let _ = w.close();
+                        }
+                    });
                     respond(200, "text/plain", b"ok".to_vec())
                 }
                 None => respond(400, "text/plain", b"bad result".to_vec()),

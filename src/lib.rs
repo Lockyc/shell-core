@@ -145,6 +145,22 @@ pub(crate) fn spawn_reaped(cmd: &mut std::process::Command) {
     }
 }
 
+/// Run `f` on the main thread once the scheme request the caller is serving has returned: the
+/// crate's one path for a shell page closing its own webview or window from inside its own request
+/// (the form's result, the downloads popup's close). A close run synchronously there tears the
+/// webview down while its request is still running; posting it from another thread queues it
+/// behind the response.
+#[cfg(feature = "runtime")]
+pub(crate) fn after_request<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    f: impl FnOnce() + Send + 'static,
+) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let _ = app.run_on_main_thread(f);
+    });
+}
+
 #[cfg(feature = "runtime")]
 pub mod progress_bar;
 
