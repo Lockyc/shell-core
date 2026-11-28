@@ -56,11 +56,11 @@ Two rules span every module below:
   activates. Every bring-forward goes through `focus::bring_forward`, never a bare `set_focus`, in
   shell-core and in each app. An app without `runtime` calls `focus::unfocused()` first thing in
   `main` (`register_plugins` does it for the rest).
-- **`spaces`** (`runtime`) — every window builder, in shell-core and in each app, takes
-  `.shell_window()` (the focus policy plus a hidden build), and the plugin `register_plugins`
-  installs shows the window on a desktop rather than over the app's own fullscreen space. A
-  builder without it still works and lands on the fullscreen space. An app without `runtime`
-  takes `.focused(focus::focused())` instead.
+- **`spaces`** (`geometry`, in `runtime`) — every window builder, in shell-core and in each app,
+  takes `.shell_window()` (the focus policy plus a hidden build), and the geometry plugin's
+  `on_window_ready` shows the window on a desktop rather than over the app's own fullscreen space.
+  A builder without it still opens, on the fullscreen space; one with it in an app that registers
+  no geometry plugin never shows.
 - **`geometry`** (`geometry`, in `runtime`) — per-window size/position persistence, every app; the
   app hands it a resolved config path, or its own label → `Persist`
   mapping (`plugin_keyed`). `src/geometry.rs`.

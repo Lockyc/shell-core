@@ -654,44 +654,12 @@ fn build<R: Runtime>(filename: String, persist: Box<PersistFn>) -> TauriPlugin<R
             });
             Ok(())
         })
+        // Every window passes through here, whichever way the app registers this plugin, so it is
+        // also where a window built hidden by `spaces::ShellWindow` is shown: after its bounds are
+        // restored, so it never appears at the default size first.
         .on_window_ready(|window| {
-            let label = window.label().to_string();
-            let state = window.state::<GeometryState>();
-            let (persist, saved) = state.recorder().ready(&label);
-            if persist == Persist::Skip {
-                return;
-            }
-            // The restore runs outside the lock: its Tauri calls marshal to the main loop.
-            let before = saved.and_then(|_| snapshot(&window));
-            let fitted = saved.map(|rect| match persist {
-                Persist::SizeOnly(_) => restore_size(&window, rect),
-                _ => restore(&window, rect),
-            });
-            state.recorder().arm(&label, before, fitted);
-
-            // Snapshot on move/resize so a window's bounds survive even when the window itself is
-            // closed mid-session: by the time `flush` runs on `RunEvent::Exit`, a closed window is
-            // gone from `app.windows()`, so without this event-driven cache its bounds would be
-            // lost entirely rather than merely stale. That is not a nicety for a detached-tab
-            // window — closing it IS how a popped-out tab redocks, so it is the *normal* path, and
-            // this handler is the only reason its remembered size survives at all.
-            // (The cache is memory-only and the exit-time
-            // flush is the only write to disk, so this does *not* protect against an abnormal exit
-            // or crash — only against a window closing before a normal one.)
-            let tracked = window.clone();
-            window.on_window_event(move |event| {
-                let state = tracked.state::<GeometryState>();
-                match event {
-                    WindowEvent::Destroyed => state.recorder().destroyed(tracked.label()),
-                    WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                        // Snapshot before taking the lock, as `flush` does.
-                        if let Some(rect) = snapshot(&tracked) {
-                            state.recorder().moved(tracked.label(), rect);
-                        }
-                    }
-                    _ => {}
-                }
-            });
+            track(&window);
+            crate::spaces::show(&window);
         })
         .on_event(|app, event| {
             if matches!(event, RunEvent::Exit) {
@@ -699,6 +667,48 @@ fn build<R: Runtime>(filename: String, persist: Box<PersistFn>) -> TauriPlugin<R
             }
         })
         .build()
+}
+
+/// Restores `window`'s saved bounds and records its later moves, unless its [`Persist`] is
+/// [`Persist::Skip`].
+fn track<R: Runtime>(window: &tauri::Window<R>) {
+    let label = window.label().to_string();
+    let state = window.state::<GeometryState>();
+    let (persist, saved) = state.recorder().ready(&label);
+    if persist == Persist::Skip {
+        return;
+    }
+    // The restore runs outside the lock: its Tauri calls marshal to the main loop.
+    let before = saved.and_then(|_| snapshot(window));
+    let fitted = saved.map(|rect| match persist {
+        Persist::SizeOnly(_) => restore_size(window, rect),
+        _ => restore(window, rect),
+    });
+    state.recorder().arm(&label, before, fitted);
+
+    // Snapshot on move/resize so a window's bounds survive even when the window itself is
+    // closed mid-session: by the time `flush` runs on `RunEvent::Exit`, a closed window is
+    // gone from `app.windows()`, so without this event-driven cache its bounds would be
+    // lost entirely rather than merely stale. That is not a nicety for a detached-tab
+    // window — closing it IS how a popped-out tab redocks, so it is the *normal* path, and
+    // this handler is the only reason its remembered size survives at all.
+    // (The cache is memory-only and the exit-time
+    // flush is the only write to disk, so this does *not* protect against an abnormal exit
+    // or crash — only against a window closing before a normal one.)
+    let tracked = window.clone();
+    window.on_window_event(move |event| {
+        let state = tracked.state::<GeometryState>();
+        match event {
+            WindowEvent::Destroyed => state.recorder().destroyed(tracked.label()),
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                // Snapshot before taking the lock, as `flush` does.
+                if let Some(rect) = snapshot(&tracked) {
+                    state.recorder().moved(tracked.label(), rect);
+                }
+            }
+            _ => {}
+        }
+    });
 }
 
 #[cfg(test)]

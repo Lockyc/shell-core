@@ -7,8 +7,8 @@
 //! `FullScreenNone` is refused by the fullscreen space, so macOS switches to a desktop and places
 //! it there.
 //!
-//! So every window is built hidden ([`ShellWindow::shell_window`]) and [`plugin`]'s
-//! `on_window_ready` hook shows it: borrow `FullScreenNone`, order the window in, and hand back the
+//! So every window is built hidden ([`ShellWindow::shell_window`]) and the geometry plugin's
+//! `on_window_ready` hook, which every app registers, shows it ([`show`]): borrow `FullScreenNone`, order the window in, and hand back the
 //! original behaviour [`RESTORE_AFTER`] later, so the window can go fullscreen as usual. Measured
 //! on macOS 27 with a fullscreen window active:
 //!
@@ -25,9 +25,8 @@ use tauri::{Runtime, WebviewWindowBuilder};
 /// fullscreen until then.
 pub const RESTORE_AFTER: Duration = Duration::from_millis(200);
 
-/// What every window builder in shell-core and its apps takes in place of a bare `.build()`'s
-/// defaults: the [`crate::focus`] policy, and a hidden build that [`plugin`] then shows on a
-/// desktop.
+/// What every window builder in shell-core and its apps takes: the [`crate::focus`] policy, and a
+/// hidden build that [`show`] then puts on a desktop.
 pub trait ShellWindow: Sized {
     fn shell_window(self) -> Self;
 }
@@ -38,18 +37,10 @@ impl<'a, R: Runtime, M: tauri::Manager<R>> ShellWindow for WebviewWindowBuilder<
     }
 }
 
-/// The plugin that shows each window built through [`ShellWindow::shell_window`].
-/// [`crate::register_plugins`] installs it after the geometry plugin, so a window's saved bounds
-/// are restored while it is still hidden.
-pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
-    tauri::plugin::Builder::<R>::new("shell-spaces")
-        .on_window_ready(|window| show(&window))
-        .build()
-}
-
-/// Tauri runs `on_window_ready` on the main thread. A window that is already visible was not
-/// built through [`ShellWindow::shell_window`]; it is left alone.
-fn show<R: Runtime>(window: &tauri::Window<R>) {
+/// Shows a window built through [`ShellWindow::shell_window`]. Called from the geometry plugin's
+/// `on_window_ready`, which Tauri runs on the main thread. A window that is already visible was
+/// not built that way and is left alone.
+pub(crate) fn show<R: Runtime>(window: &tauri::Window<R>) {
     if window.is_visible().unwrap_or(true) {
         return;
     }

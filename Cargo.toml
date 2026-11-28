@@ -24,7 +24,7 @@ banner = [
     "dep:block2",
     "dep:objc2-user-notifications",
 ]
-geometry = ["dep:tauri", "dep:serde", "dep:serde_json"]
+geometry = ["dep:tauri", "dep:serde", "dep:serde_json", "dep:objc2", "dep:objc2-app-kit"]
 runtime = [
     "banner",
     "geometry",
@@ -79,8 +79,8 @@ getrandom = { version = "0.2", optional = true }
 
 # Native macOS bits behind the `runtime` feature: the mouse side-button NSEvent monitor
 # (src/mouse_nav.rs) and the content-webview loading bar (src/progress_bar.rs, an NSView overlay on
-# the WKWebView driven by estimatedProgress). macOS-only + optional, pulled only by `runtime`, so the
-# zero-tauri build-dep never compiles them.
+# the WKWebView driven by estimatedProgress); `geometry` pulls objc2-app-kit too, for the window
+# placement in src/spaces.rs. macOS-only + optional, so the zero-tauri build-dep never compiles them.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", features = [
