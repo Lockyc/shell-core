@@ -32,8 +32,13 @@ pub trait ShellWindow: Sized {
 }
 
 impl<'a, R: Runtime, M: tauri::Manager<R>> ShellWindow for WebviewWindowBuilder<'a, R, M> {
+    /// On a phone a window has no focus to keep or space to land on, and the builder offers
+    /// neither `focused` nor `visible`: the window is built as it is.
     fn shell_window(self) -> Self {
-        self.focused(crate::focus::focused()).visible(false)
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        return self.focused(crate::focus::focused()).visible(false);
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        return self;
     }
 }
 

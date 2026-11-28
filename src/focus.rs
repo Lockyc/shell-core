@@ -41,8 +41,12 @@ pub trait Raise {
 }
 
 impl<R: tauri::Runtime> Raise for tauri::Window<R> {
+    /// A phone has no minimised window, and tauri offers no `unminimize` there.
     fn unminimize(&self) -> tauri::Result<()> {
-        tauri::Window::unminimize(self)
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        return tauri::Window::unminimize(self);
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        return Ok(());
     }
     fn show(&self) -> tauri::Result<()> {
         tauri::Window::show(self)
@@ -53,8 +57,12 @@ impl<R: tauri::Runtime> Raise for tauri::Window<R> {
 }
 
 impl<R: tauri::Runtime> Raise for tauri::WebviewWindow<R> {
+    /// A phone has no minimised window, and tauri offers no `unminimize` there.
     fn unminimize(&self) -> tauri::Result<()> {
-        tauri::WebviewWindow::unminimize(self)
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        return tauri::WebviewWindow::unminimize(self);
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        return Ok(());
     }
     fn show(&self) -> tauri::Result<()> {
         tauri::WebviewWindow::show(self)
