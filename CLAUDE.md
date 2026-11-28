@@ -53,10 +53,14 @@ Two rules span every module below:
     site in that same lockstep re-pin, and remove the `skip_labels` mentions here and in the
     README.
 - **`focus`** (`banner` or `geometry`) — `SHELL_CORE_UNFOCUSED=1` launches an app that never
-  activates. Every window builder takes `.focused(focus::focused())` and every bring-forward goes
-  through `focus::bring_forward`, never a bare `set_focus`, in shell-core and in each app. An app
-  without `runtime` calls `focus::unfocused()` first thing in `main` (`register_plugins` does it
-  for the rest).
+  activates. Every bring-forward goes through `focus::bring_forward`, never a bare `set_focus`, in
+  shell-core and in each app. An app without `runtime` calls `focus::unfocused()` first thing in
+  `main` (`register_plugins` does it for the rest).
+- **`spaces`** (`runtime`) — every window builder, in shell-core and in each app, takes
+  `.shell_window()` (the focus policy plus a hidden build), and the plugin `register_plugins`
+  installs shows the window on a desktop rather than over the app's own fullscreen space. A
+  builder without it still works and lands on the fullscreen space. An app without `runtime`
+  takes `.focused(focus::focused())` instead.
 - **`geometry`** (`geometry`, in `runtime`) — per-window size/position persistence, every app; the
   app hands it a resolved config path, or its own label → `Persist`
   mapping (`plugin_keyed`). `src/geometry.rs`.

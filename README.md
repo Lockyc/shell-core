@@ -55,7 +55,7 @@ web-view names, `{window}:{within}`).
 **Runtime (`runtime` feature):**
 
 - **Windows** — `geometry` (each window's size and position, restored correctly across monitors),
-  `windows` (opening, renaming and closing the config's windows, and the New/Edit/Delete Window
+  `spaces` (a new window opens on a desktop, never over the app's own fullscreen space), `windows` (opening, renaming and closing the config's windows, and the New/Edit/Delete Window
   form), `home` (the window shown when no other is open), and `detach` (a tab popped out into its
   own window).
 - **Menus** — the shared App, Config, Window, Edit and Tab menus, with the shortcuts every app

@@ -176,6 +176,7 @@ where
     R: tauri::Runtime,
     F: FnOnce(&tauri::WebviewWindow<R>, tauri::LogicalSize<f64>) -> tauri::Result<()>,
 {
+    use crate::spaces::ShellWindow as _;
     use tauri::Manager as _;
     let label = detached_label(token);
     let load_error = app
@@ -193,7 +194,7 @@ where
             "__SHELL_DETACH__",
             &payload,
         ))
-        .focused(crate::focus::focused())
+        .shell_window()
         .build()?;
 
     // The size the window ACTUALLY has, which is `spec`'s only when this tab has no remembered

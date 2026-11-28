@@ -141,6 +141,7 @@ pub fn open_form<R: tauri::Runtime>(
     taken_titles: Vec<String>,
     on_result: impl FnOnce(FormResult) + Send + 'static,
 ) {
+    use crate::spaces::ShellWindow as _;
     use tauri::{Emitter, Manager};
 
     let payload = payload_json(&mode, &taken_titles);
@@ -172,7 +173,7 @@ pub fn open_form<R: tauri::Runtime>(
                 "__SHELL_WINDOW_FORM__",
                 &payload,
             ))
-            .focused(crate::focus::focused())
+            .shell_window()
             .build();
     let Ok(window) = built else {
         finish(FormResult::Cancel);

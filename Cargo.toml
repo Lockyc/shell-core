@@ -1,6 +1,6 @@
 [package]
 name = "shell-core"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 license = "MIT"
 description = "Shared Tauri app-shell + release-tooling layer for the warden, curator, lector, and flotilla apps."

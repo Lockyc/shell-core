@@ -149,6 +149,7 @@ pub fn show_home<R: tauri::Runtime>(
     state: &HomeState,
     app_name: &str,
 ) -> tauri::Result<()> {
+    use crate::spaces::ShellWindow as _;
     use tauri::Manager;
 
     let payload = payload_json(state, app_name);
@@ -171,7 +172,7 @@ pub fn show_home<R: tauri::Runtime>(
         .inner_size(560.0, 480.0)
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .initialization_script(payload_init_script("__SHELL_HOME__", &payload))
-        .focused(crate::focus::focused())
+        .shell_window()
         .build()?;
     Ok(())
 }

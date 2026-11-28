@@ -141,6 +141,10 @@ pub mod progress_bar;
 #[cfg(feature = "geometry")]
 pub mod geometry;
 
+/// Every window builds hidden and opens on a desktop, never over the app's own fullscreen space.
+#[cfg(feature = "runtime")]
+pub mod spaces;
+
 /// Emit a build stamp so the About box can confirm the installed app matches a given commit. Prints
 /// `cargo:rustc-env=BUILD_GIT_SHA=<short>[-dirty]` and `cargo:rustc-env=BUILD_DATE=<YYYY-MM-DD>`.
 /// Call from a consumer's `build.rs`; read the values with `env!("BUILD_GIT_SHA")` /
@@ -187,7 +191,8 @@ mod runtime {
     /// continued chaining:
     ///
     /// - plugins: window geometry (keyed per config file via
-    ///   [`crate::geometry::geometry_filename`]), the updater, the process plugin (the updater's
+    ///   [`crate::geometry::geometry_filename`]), window placement ([`crate::spaces`], after
+    ///   geometry so bounds restore while the window is hidden), the updater, the process plugin (the updater's
     ///   relaunch) and [`crate::edit_keys`];
     /// - custom protocols: the home surface ([`crate::home`]), the window form
     ///   ([`crate::windows::form`]), the downloads popup ([`crate::downloads::popup`]) and the
@@ -224,6 +229,7 @@ mod runtime {
         let builder = builder
             .plugin(edit_keys)
             .plugin(crate::geometry::plugin(filename, skip_labels))
+            .plugin(crate::spaces::plugin())
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_process::init());
         // The home surface's and the detach surface's pages are each served over their own custom
